@@ -104,7 +104,7 @@ end
 Runtime instance of a registry tool, providing AbstractTool-compatible interface.
 
 Created by `create_instance(def, call)` when a tool is looked up from registry.
-Provides: id, result storage, execute via handler, needs_approval check.
+Provides: id, result storage, execute via handler.
 """
 @kwdef mutable struct ToolDefInstance
     def::ToolDef
