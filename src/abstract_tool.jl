@@ -6,7 +6,7 @@ export AbstractTool
 export create_tool, preprocess, execute, get_id, is_cancelled
 export toolname, get_description, get_tool_schema, get_extra_description
 export result2string, resultimg2base64, resultaudio2base64
-export execute_required_tools, get_cost
+export is_executable, get_cost
 export description_from_schema
 
 using UUIDs: UUID, uuid4
@@ -21,6 +21,9 @@ Tool execution flow:
          │
          ▼
     preprocess(tool) → Optional transformation
+         │
+         ▼
+    is_executable(tool) → Skip if false (wrapper tools)
          │
          ▼
     execute(tool) → Perform action
@@ -38,6 +41,7 @@ Optional:
 - `preprocess(tool)` - Pre-execution transformation
 - `result2string(tool)` - Custom result formatting
 - `get_tool_schema(::Type{T})` - Schema for dynamic description
+- `is_executable(::Type{T})` - Whether tool can be executed (default true, false for wrappers)
 """
 abstract type AbstractTool end
 
@@ -66,8 +70,9 @@ result2string(tool::AbstractTool)::String = hasproperty(tool, :result) ? string(
 resultimg2base64(::AbstractTool)::String = ""
 resultaudio2base64(::AbstractTool)::String = ""
 
-execute_required_tools(::Type{<:AbstractTool}) = false
-execute_required_tools(tool::AbstractTool) = execute_required_tools(typeof(tool))
+# Whether this tool can be executed (false for wrapper tools like TextTool, ReasonTool)
+is_executable(::Type{<:AbstractTool}) = true
+is_executable(tool::AbstractTool) = is_executable(typeof(tool))
 
 """Generate description from a schema NamedTuple."""
 function description_from_schema(schema)

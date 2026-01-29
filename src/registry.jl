@@ -6,7 +6,7 @@ using UUIDs: UUID, uuid4
 export ToolDef, ToolDefInstance
 export register_tool, unregister_tool, get_tool, has_tool, list_tools, clear_registry!
 export kwargs, create_instance
-export toolname, get_id, needs_approval, execute!, result2string, execute_required
+export toolname, get_id, execute!, result2string
 
 """
 A registered tool definition with schema and handler.
@@ -14,19 +14,17 @@ A registered tool definition with schema and handler.
 # Fields
 - `schema`: ToolSchema for prompt generation
 - `handler`: Function (call::ParsedCall; kw...) -> String
-- `needs_approval`: Whether tool requires user approval before execution
 """
 @kwdef struct ToolDef
     schema::ToolSchema
     handler::Function
-    needs_approval::Bool = true
 end
 
 # Global tool registry
 const TOOLS = Dict{Symbol, ToolDef}()
 
 """
-    register_tool(name; schema, handler, needs_approval=true)
+    register_tool(name; schema, handler)
 
 Register a tool in the global registry.
 
@@ -36,13 +34,12 @@ register_tool(:cat_file,
     schema = ToolSchema(name="cat_file", description="Read a file", params=[
         ParamSchema(name="path", type="string", required=true)
     ]),
-    handler = (call; kw...) -> read(kwargs(call).path, String),
-    needs_approval = false
+    handler = (call; kw...) -> read(kwargs(call).path, String)
 )
 ```
 """
-function register_tool(name::Union{Symbol, String}; schema::ToolSchema, handler::Function, needs_approval::Bool=true)
-    TOOLS[Symbol(name)] = ToolDef(; schema, handler, needs_approval)
+function register_tool(name::Union{Symbol, String}; schema::ToolSchema, handler::Function)
+    TOOLS[Symbol(name)] = ToolDef(; schema, handler)
 end
 
 """
@@ -142,9 +139,6 @@ toolname(inst::ToolDefInstance) = inst.def.schema.name
 """Get instance ID."""
 get_id(inst::ToolDefInstance) = inst.id
 
-"""Check if tool requires approval."""
-needs_approval(inst::ToolDefInstance) = inst.def.needs_approval
-
 """Execute the tool handler and store result."""
 function execute!(inst::ToolDefInstance; kwargs...)
     inst.result = string(inst.def.handler(inst.call; kwargs...))
@@ -153,6 +147,3 @@ end
 
 """Get result as string."""
 result2string(inst::ToolDefInstance) = inst.result
-
-"""Check if tool should auto-execute (inverse of needs_approval)."""
-execute_required(inst::ToolDefInstance) = !inst.def.needs_approval
