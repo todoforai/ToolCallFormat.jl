@@ -1,0 +1,10 @@
+# Julia
+Manifest.toml
+*.jl.cov
+*.jl.mem
+docs/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
