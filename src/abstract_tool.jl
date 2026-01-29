@@ -20,7 +20,7 @@ Tool execution flow:
     create_tool(Type, call) → Tool instance
          │
          ▼
-    preprocess(tool) → Optional transformation
+    preprocess(tool, ctx) → Optional transformation
          │
          ▼
     is_executable(tool) → Skip if false (wrapper tools)
@@ -38,7 +38,7 @@ Interface methods to implement:
 - `get_description(::Type{T})` - Usage documentation
 
 Optional:
-- `preprocess(tool)` - Pre-execution transformation
+- `preprocess(tool, ctx::PreprocessContext)` - Pre-execution transformation
 - `result2string(tool)` - Custom result formatting
 - `get_tool_schema(::Type{T})` - Schema for dynamic description
 - `is_executable(::Type{T})` - Whether tool can be executed (default true, false for wrappers)
@@ -63,8 +63,7 @@ toolname(::Type{T}) where T <: AbstractTool = (@warn "Unimplemented toolname for
 toolname(tool::AbstractTool) = toolname(typeof(tool))
 
 # Optional interface with defaults
-preprocess(tool::AbstractTool) = tool
-preprocess(tool::AbstractTool, ::PreprocessContext) = preprocess(tool)  # fallback delegates to single-arg
+preprocess(tool::AbstractTool, ::PreprocessContext) = tool
 get_id(tool::AbstractTool) = hasproperty(tool, :id) ? tool.id : uuid4()
 is_cancelled(::AbstractTool) = false
 get_cost(::AbstractTool) = nothing
