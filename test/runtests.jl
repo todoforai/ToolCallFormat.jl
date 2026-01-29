@@ -129,6 +129,45 @@ using ToolCallFormat
         println("✓ Serializer tests passed")
     end
 
+    @testset "@deftool Parameter Descriptions" begin
+        # Tool with description and default
+        @deftool "Test tool" test_desc(
+            name::String => (desc="The name",),
+            count::Int => (desc="How many", default=5)
+        ) = "name=$name, count=$count"
+
+        schema = get_tool_schema(TestDescTool)
+        @test schema.name == "test_desc"
+        @test length(schema.params) == 2
+
+        # Check first param (required, with desc)
+        p1 = schema.params[1]
+        @test p1.name == "name"
+        @test p1.description == "The name"
+        @test p1.required == true
+
+        # Check second param (optional with default, with desc)
+        p2 = schema.params[2]
+        @test p2.name == "count"
+        @test p2.description == "How many"
+        @test p2.required == false
+
+        # Test tool execution
+        tool = create_tool(TestDescTool, parse_tool_call("test_desc(name: \"alice\")\n"))
+        execute(tool)
+        @test tool.result == "name=alice, count=5"
+
+        # String shorthand syntax
+        @deftool "Shorthand test" test_short(
+            msg::String => "The message"
+        ) = msg
+
+        schema2 = get_tool_schema(TestShortTool)
+        @test schema2.params[1].description == "The message"
+
+        println("✓ @deftool parameter descriptions tests passed")
+    end
+
     @testset "Schema Generation" begin
         schema = ToolSchema(
             name="read_file",

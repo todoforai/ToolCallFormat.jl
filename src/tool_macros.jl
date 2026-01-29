@@ -432,14 +432,16 @@ function _parse_sig(sig)
 end
 
 """
-Parse a parameter expression, supporting optional description via `=>` syntax.
+Parse a parameter expression into normalized (name, type, required, default, desc) tuple.
 
 Supported forms:
-- `x::Type`                                  → required, no desc, no default
-- `x::Type = val`                            → optional, no desc, with default
-- `x::Type => (desc="...",)`                 → required, with desc, no default
-- `x::Type => (desc="...", default=val)`     → optional, with desc, with default
-- `x` (untyped)                              → defaults to String type
+- `x::Type`                              → required, no description
+- `x::Type = val`                        → optional with default
+- `x::Type => (desc="...",)`             → required with description
+- `x::Type => (desc="...", default=val)` → optional with both
+- `x` (untyped)                          → defaults to String type
+
+The `is_positional` flag determines if params without defaults are required.
 """
 function _parse_param(expr, is_positional)
     # Case 1: Has top-level default (head == :kw means `something = default`)
@@ -451,13 +453,14 @@ function _parse_param(expr, is_positional)
         return (name=name, type=type, required=false, default=default, desc="")
     end
 
-    # Case 2: Has `=>` with named tuple: `x::Type => (desc="...", default=...)`
+    # Case 2: Has `=>` with spec: `x::Type => (desc="...", default=...)`
     if expr isa Expr && expr.head == :call && expr.args[1] == :(=>)
         typed_part = expr.args[2]
         spec = expr.args[3]
         name, type = _parse_typed(typed_part)
         desc, default = _parse_param_spec(spec)
-        required = default === nothing ? is_positional : false
+        has_default = default !== nothing
+        required = !has_default && is_positional
         return (name=name, type=type, required=required, default=default, desc=desc)
     end
 
@@ -476,12 +479,12 @@ function _parse_param(expr, is_positional)
 end
 
 """
-Parse the spec part after `=>`: named tuple `(desc="...", default=...)` or just a string.
-
-Returns (description::String, default::Any)
+Parse the spec after `=>`. Accepts:
+- String: `"description"` → returns ("description", nothing)
+- Named tuple: `(desc="...", default=val)` → returns ("...", val)
 """
 function _parse_param_spec(spec)
-    # Simple string: `x::Type => "description"` (for backwards compat / convenience)
+    # Simple string shorthand: `x::Type => "description"`
     if spec isa String
         return (spec, nothing)
     end
@@ -511,9 +514,11 @@ function _parse_param_spec(spec)
     error("@deftool: parameter spec must be a string or named tuple (desc=\"...\", default=...), got: $spec")
 end
 
+"""Extract (name, type) from `name::Type`. Unwraps `Union{T, Nothing}` to just `T`."""
 function _parse_typed(expr)
     expr isa Expr && expr.head == :(::) || return (expr, :String)
     name, type = expr.args
+    # Handle Union{T, Nothing} -> T (common pattern for optional fields)
     if type isa Expr && type.head == :curly && type.args[1] == :Union
         type = type.args[2]
     end
