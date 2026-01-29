@@ -24,8 +24,7 @@ Base.string(cb::CodeBlock) = cb.content
 #==============================================================================#
 
 const VALID_SCHEMA_TYPES = Set(["string", "codeblock", "number", "integer", "boolean", "array", "object"])
-
-const RESERVED_FIELD_NAMES = Set([:id, :result, :auto_run])
+const RESERVED_FIELD_NAMES = Set([:id, :result])
 
 #==============================================================================#
 # @deftool - Function-style macro (primary)
@@ -41,13 +40,16 @@ Define a tool using function syntax. Docstring becomes description.
 
 ```julia
 "Send keyboard input"
-@deftool send_key(text::String) = "Sending: \$text"
+@deftool send_key(text::String) = "Sending keys: \$text"
 
 "Execute shell commands"
-@deftool ShellBlockTool bash(cmd::CodeBlock) = run(`zsh -c \$(cmd.content)`)
+@deftool bash(cmd::CodeBlock) = run_shell(cmd)
 
 "Click coordinates"
 @deftool click(x::Int, y::Int) = "Click at (\$x, \$y)"
+
+"Search the web"
+@deftool web_search(query::String) = search_web(query)
 
 "Read file with optional limit"
 @deftool function cat_file(path::String; limit::Union{Int,Nothing}=nothing)
@@ -57,25 +59,35 @@ end
 ```
 """
 macro deftool(args...)
-    struct_override, func_expr = if length(args) == 1
-        (nothing, args[1])
-    elseif length(args) == 2
-        (args[1], args[2])
-    else
-        error("@deftool: expected 1-2 args")
+    # Parse args: [StructName] func_expr
+    struct_override = nothing
+    func_expr = nothing
+
+    for arg in args
+        if arg isa Expr
+            func_expr = arg
+        elseif arg isa Symbol
+            struct_override = arg
+        else
+            error("@deftool: unexpected argument: $arg")
+        end
     end
+
+    func_expr === nothing && error("@deftool: missing function expression")
 
     docstring, func_expr = _extract_docstring(func_expr)
     func_name, params, body = _parse_func(func_expr)
 
-    struct_name = struct_override !== nothing ? struct_override : Symbol(uppercasefirst(string(func_name)), :Tool)
+    struct_name = struct_override !== nothing ? struct_override : Symbol(_to_camel_case(string(func_name)), :Tool)
 
     params_expr = _build_params_expr(params)
     param_names = Set(p.name for p in params)
     new_body = _transform_body(body, param_names)
 
+    execute_body = :(tool.result = string($new_body))
+
     esc(quote
-        @tool $struct_name $(string(func_name)) $docstring $params_expr (tool; kw...) -> $new_body
+        @tool $struct_name $(string(func_name)) $docstring $params_expr (tool; kw...) -> $execute_body
     end)
 end
 
@@ -126,6 +138,7 @@ function _generate_passive_tool(sn, tool_name, description)
         @kwdef mutable struct $sn <: AbstractTool
             id::UUID = uuid4()
             content::String = ""
+            result::String = ""
         end
 
         ToolCallFormat.toolname(::Type{$sn}) = $tool_name
@@ -137,9 +150,8 @@ function _generate_passive_tool(sn, tool_name, description)
         ToolCallFormat.get_description(t::$sn, style::CallStyle=get_default_call_style()) = ToolCallFormat.get_description(typeof(t), style)
 
         ToolCallFormat.get_tool_schema(::Type{$sn}) = (name=$tool_name, description=$description, params=[])
-        ToolCallFormat.execute_required_tools(::$sn) = false
-        ToolCallFormat.is_cancelled(::$sn) = false
         ToolCallFormat.create_tool(::Type{$sn}, call::ParsedCall) = $sn(content=call.content)
+        ToolCallFormat.result2string(tool::$sn)::String = tool.result
     end
 end
 
@@ -148,7 +160,7 @@ end
 #==============================================================================#
 
 function _generate_active_tool(sn, tool_name, description, params, execute_expr, result_expr)
-    base_fields = [(:id, UUID, :(uuid4())), (:result, String, :("")), (:auto_run, Bool, :(false))]
+    base_fields = [(:id, UUID, :(uuid4())), (:result, String, :(""))]
 
     user_fields = [(name, _schema_to_julia_type(type_str), default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : default)
                    for (name, type_str, _, _, default) in params]
@@ -183,15 +195,12 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
              params=[$([:(( name=$(string(name)), type=$type_str, description=$desc, required=$req ))
                        for (name, type_str, desc, req, _) in params]...)])
         end
-
-        ToolCallFormat.execute_required_tools(tool::$sn) = tool.auto_run
-        ToolCallFormat.is_cancelled(::$sn) = false
     end
 
     _add_create_tool!(result, sn, params)
 
     if execute_expr !== nothing
-        push!(result.args, :(ToolCallFormat.execute(tool::$sn; no_confirm=false, kwargs...) = $(esc(execute_expr))(tool; no_confirm, kwargs...)))
+        push!(result.args, :(ToolCallFormat.execute(tool::$sn; kwargs...) = $(esc(execute_expr))(tool; kwargs...)))
     end
 
     if result_expr !== nothing
@@ -233,8 +242,13 @@ function _add_create_tool!(result, sn, params)
 end
 
 #==============================================================================#
-# @deftool parsing helpers
+# Parsing helpers
 #==============================================================================#
+
+"""Convert snake_case to CamelCase: send_key → SendKey"""
+function _to_camel_case(s::String)
+    join(uppercasefirst.(split(s, '_')))
+end
 
 function _extract_docstring(expr)
     if expr isa Expr && expr.head == :macrocall &&
@@ -324,10 +338,6 @@ function _transform_body(expr, param_names::Set{Symbol})
     end
     expr
 end
-
-#==============================================================================#
-# @tool parsing helpers
-#==============================================================================#
 
 function _parse_params_ast(expr)
     expr isa Expr && expr.head == :vect || error("@tool params must be [...], got: $(typeof(expr))")
