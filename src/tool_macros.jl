@@ -33,12 +33,16 @@ const RESERVED_FIELD_NAMES = Set([:id, :result])
 """
     @deftool "description" name(args...; kwargs...) = ...
     @deftool "description" function name(args...; kwargs...) ... end
+    @deftool "description" (internal_fields...) function name(args...) ... end
 
 Define a tool using function syntax. Description is passed as first argument.
 Struct name is auto-generated: `snake_case` → `CamelCaseTool`.
 
 Context kwargs (typed as `Context` or `<:AbstractContext`) are NOT exposed to AI.
 They are system-injected via execute kwargs.
+
+Internal fields (in tuple after description) become struct fields but are NOT in schema.
+Useful for preprocess hooks that need to store computed state.
 
 # Examples
 
@@ -48,26 +52,37 @@ They are system-injected via execute kwargs.
 @deftool "Click coordinates" click(x::Int, y::Int) = "Click at (\$x, \$y)"
 
 @deftool "Read file" function cat_file(path::String; ctx::Context)
-    # ctx is system-injected, not visible to AI
     full_path = joinpath(ctx.root_path, path)
     read(full_path, String)
 end
 
-@deftool "Search workspace" function workspace_search(query::String; ctx::Context)
-    search(query, ctx.root_path)
+# With internal fields for preprocess hook
+@deftool "Modify file" (postcontent::String="", model=["gpt4o"]) function modify_file(file_path::String, content::CodeBlock; ctx::Context)
+    # postcontent is set by preprocess, not by AI
+    apply_changes(file_path, postcontent, ctx)
 end
 ```
 """
 macro deftool(args...)
-    # Parse args: "description" func_expr
+    # Parse args: "description" [internal_fields_tuple] func_expr
     func_expr = nothing
     description = ""
+    internal_fields_expr = nothing
 
     for arg in args
-        if arg isa Expr
-            func_expr = arg
-        elseif arg isa String
+        if arg isa String
             description = arg
+        elseif arg isa Expr && arg.head == :tuple
+            # Multiple internal fields: (a::String="", b::Int=0)
+            internal_fields_expr = arg
+        elseif arg isa Expr && arg.head == :(=) && _looks_like_internal_field(arg)
+            # Single internal field: (a::String="") parses as just the assignment
+            internal_fields_expr = Expr(:tuple, arg)  # Wrap in tuple for uniform handling
+        elseif arg isa Expr && arg.head == :(::) && !(arg.args[1] isa Expr)
+            # Single uninitialized internal field: (a::String)
+            internal_fields_expr = Expr(:tuple, arg)
+        elseif arg isa Expr
+            func_expr = arg
         else
             error("@deftool: unexpected argument: $arg")
         end
@@ -78,28 +93,86 @@ macro deftool(args...)
     func_name, params, body = _parse_func(func_expr)
     struct_name = Symbol(_to_camel_case(string(func_name)), :Tool)
 
+    # Parse internal fields
+    internal_fields = _parse_internal_fields(internal_fields_expr)
+
     # Separate schema params (for AI) from context params (system-injected)
     schema_params = filter(p -> !_is_context_type(p.type), params)
     context_params = filter(p -> _is_context_type(p.type), params)
 
+    # Build params for @tool (schema params only, internal fields passed separately)
     params_expr = _build_params_expr(schema_params)
+    internal_expr = _build_internal_expr(internal_fields)
 
-    # Transform body: schema params -> tool.field, context params -> kw[:name]
+    # Transform body: schema params -> tool.field, context params -> kw[:name], internal -> tool.field
     schema_names = Set(p.name for p in schema_params)
     context_names = Set(p.name for p in context_params)
-    new_body = _transform_body_with_context(body, schema_names, context_names)
+    internal_names = Set(f.name for f in internal_fields)
+    new_body = _transform_body_with_context(body, union(schema_names, internal_names), context_names)
 
     execute_body = :(tool.result = string($new_body))
 
     esc(quote
-        @tool $struct_name $(string(func_name)) $description $params_expr (tool; kw...) -> $execute_body
+        @tool $struct_name $(string(func_name)) $description $params_expr (tool; kw...) -> $execute_body $internal_expr
     end)
 end
 
-"""Check if a type is a context type (Context or <:AbstractContext)."""
+"""Parse internal fields from tuple expression: (name::Type=default, ...)"""
+function _parse_internal_fields(expr)
+    expr === nothing && return NamedTuple{(:name, :type, :default), Tuple{Symbol, Any, Any}}[]
+
+    fields = NamedTuple{(:name, :type, :default), Tuple{Symbol, Any, Any}}[]
+    items = expr.head == :tuple ? expr.args : [expr]
+
+    for item in items
+        if item isa Expr && item.head == :(=)
+            # name::Type = default  or  name = default
+            lhs, default = item.args
+            if lhs isa Expr && lhs.head == :(::)
+                name, type = lhs.args
+            else
+                name, type = lhs, :Any
+            end
+            push!(fields, (name=name, type=type, default=default))
+        elseif item isa Expr && item.head == :(::)
+            # name::Type (no default)
+            name, type = item.args
+            push!(fields, (name=name, type=type, default=nothing))
+        elseif item isa Symbol
+            # just name
+            push!(fields, (name=item, type=:Any, default=nothing))
+        end
+    end
+    fields
+end
+
+"""Build internal fields expression for @tool"""
+function _build_internal_expr(fields)
+    isempty(fields) && return :nothing
+    tuples = map(fields) do f
+        default_expr = f.default === nothing ? :nothing : f.default
+        :($(QuoteNode(f.name)), $(f.type), $default_expr)
+    end
+    Expr(:vect, tuples...)
+end
+
+"""Check if an assignment expression looks like an internal field (name::Type=default)."""
+function _looks_like_internal_field(expr)
+    # Internal field: name::Type = default
+    # Function def: f(x) = body
+    expr.head == :(=) || return false
+    lhs = expr.args[1]
+    # If LHS is typed (name::Type), it's an internal field
+    lhs isa Expr && lhs.head == :(::) && return true
+    # If LHS is a symbol, it could be internal field with inferred type: name = default
+    lhs isa Symbol && return true
+    false
+end
+
+"""Check if a type is a context type (Context, ToolContext, or <:AbstractContext)."""
 function _is_context_type(type)
     type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :Nothing)
-    type_sym in (:Context, :AbstractContext)
+    type_sym in (:Context, :ToolContext, :AbstractContext)
 end
 
 #==============================================================================#
@@ -107,7 +180,7 @@ end
 #==============================================================================#
 
 """
-    @tool StructName "tool_name" "description" [params] [execute_fn] [result_fn]
+    @tool StructName "tool_name" "description" [params] [execute_fn] [internal_fields]
 
 Define a tool with explicit schema. Use @deftool for simpler syntax.
 
@@ -121,23 +194,41 @@ Types: "string", "codeblock", "number", "integer", "boolean", "array", "object"
 @tool CatFileTool "cat_file" "Read file contents" [
     (:path, "string", "File path", true, nothing),
     (:limit, "integer", "Max lines", false, nothing),
-] (tool; kw...) -> read(tool.path, String)
+] (tool; kw...) -> tool.result = read(tool.path, String)
 ```
 """
-macro tool(struct_name, tool_name, description, params_expr=:([]), execute_expr=nothing, result_expr=nothing)
+macro tool(struct_name, tool_name, description, params_expr=:([]), execute_expr=nothing, internal_expr=nothing)
     params = _parse_params_ast(params_expr)
     for (i, p) in enumerate(params)
         _validate_param(p, i)
     end
 
+    internal_fields = _parse_internal_ast(internal_expr)
+
     sn = esc(struct_name)
-    is_passive = isempty(params)
+    is_passive = isempty(params) && isempty(internal_fields)
 
     if is_passive
         _generate_passive_tool(sn, tool_name, description)
     else
-        _generate_active_tool(sn, tool_name, description, params, execute_expr, result_expr)
+        _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields)
     end
+end
+
+"""Parse internal fields AST: [(:name, Type, default), ...]"""
+function _parse_internal_ast(expr)
+    (expr === nothing || expr == :nothing) && return []
+    expr isa Expr && expr.head == :vect || return []
+    result = []
+    for item in expr.args
+        item isa Expr && item.head == :tuple || continue
+        length(item.args) >= 2 || continue
+        name = item.args[1] isa QuoteNode ? item.args[1].value : item.args[1]
+        type = item.args[2]
+        default = length(item.args) >= 3 ? item.args[3] : nothing
+        push!(result, (name, type, default))
+    end
+    result
 end
 
 #==============================================================================#
@@ -170,17 +261,23 @@ end
 # Active tool generation (with params)
 #==============================================================================#
 
-function _generate_active_tool(sn, tool_name, description, params, execute_expr, result_expr)
+function _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
     base_fields = [(:id, UUID, :(uuid4())), (:result, String, :(""))]
 
+    # Schema params become struct fields
     user_fields = [(name, _schema_to_julia_type(type_str), default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : default)
                    for (name, type_str, _, _, default) in params]
 
-    all_fields = vcat(base_fields, user_fields)
+    # Internal fields also become struct fields (but NOT in schema)
+    internal_struct_fields = [(name, type, default === nothing ? _default_value_expr_for_type(type) : default)
+                              for (name, type, default) in internal_fields]
+
+    all_fields = vcat(base_fields, user_fields, internal_struct_fields)
     struct_field_exprs = [:($name::$jl_type) for (name, jl_type, _) in all_fields]
     kwarg_exprs = [Expr(:kw, name, def_expr) for (name, _, def_expr) in all_fields]
     call_arg_exprs = [name for (name, _, _) in all_fields]
 
+    # Schema only includes user params, NOT internal fields
     schema_exprs = [:(ParamSchema(name=$(string(name)), type=$type_str, description=$desc, required=$req))
                     for (name, type_str, desc, req, _) in params]
 
@@ -214,13 +311,19 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
         push!(result.args, :(ToolCallFormat.execute(tool::$sn; kwargs...) = $(esc(execute_expr))(tool; kwargs...)))
     end
 
-    if result_expr !== nothing
-        push!(result.args, :(ToolCallFormat.result2string(tool::$sn)::String = $(esc(result_expr))(tool)))
-    else
-        push!(result.args, :(ToolCallFormat.result2string(tool::$sn)::String = tool.result))
-    end
+    push!(result.args, :(ToolCallFormat.result2string(tool::$sn)::String = tool.result))
 
     result
+end
+
+"""Get default value expression for a Julia type (used for internal fields)."""
+function _default_value_expr_for_type(type)
+    type == :String ? :("") :
+    type == :Int ? :(0) :
+    type == :Bool ? :(false) :
+    type == :Float64 ? :(0.0) :
+    (type isa Expr && type.head == :curly && type.args[1] == :Vector) ? :($(type)()) :
+    :(nothing)
 end
 
 #==============================================================================#
