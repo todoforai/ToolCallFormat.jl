@@ -155,9 +155,10 @@ macro deftool(args...)
     func_name_str = string(func_name)
     execute_lambda = :((tool; kw...) -> $execute_body)
 
+    # Escape internal_expr so types resolve in caller's module scope
     Expr(:macrocall, tool_macro, __source__,
          esc(struct_name), func_name_str, description, params_expr,
-         esc(execute_lambda), internal_expr)
+         esc(execute_lambda), esc(internal_expr))
 end
 
 """Parse internal fields from tuple expression: (name::Type=default, ...)"""
