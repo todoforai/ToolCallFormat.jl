@@ -6,7 +6,7 @@ export AbstractTool
 export create_tool, preprocess, execute, get_id, is_cancelled
 export toolname, get_description, get_tool_schema, get_extra_description
 export result2string, resultimg2base64, resultaudio2base64
-export execute_required_tools, get_cost, tool_format
+export execute_required_tools, get_cost
 export description_from_schema
 
 using UUIDs: UUID, uuid4
@@ -68,10 +68,6 @@ resultaudio2base64(::AbstractTool)::String = ""
 
 execute_required_tools(::Type{<:AbstractTool}) = false
 execute_required_tools(tool::AbstractTool) = execute_required_tools(typeof(tool))
-
-"""Tool format: :single_line or :multi_line"""
-tool_format(::Type{<:AbstractTool}) = :multi_line
-tool_format(tool::AbstractTool) = tool_format(typeof(tool))
 
 """Generate description from a schema NamedTuple."""
 function description_from_schema(schema)

@@ -37,20 +37,24 @@ const RESERVED_FIELD_NAMES = Set([:id, :result])
 Define a tool using function syntax. Description is passed as first argument.
 Struct name is auto-generated: `snake_case` → `CamelCaseTool`.
 
+Context kwargs (typed as `Context` or `<:AbstractContext`) are NOT exposed to AI.
+They are system-injected via execute kwargs.
+
 # Examples
 
 ```julia
 @deftool "Send keyboard input" send_key(text::String) = "Sending keys: \$text"
 
-@deftool "Execute shell commands" bash(cmd::CodeBlock) = run_shell(cmd)
-
 @deftool "Click coordinates" click(x::Int, y::Int) = "Click at (\$x, \$y)"
 
-@deftool "Search the web" web_search(query::String) = search_web(query)
+@deftool "Read file" function cat_file(path::String; ctx::Context)
+    # ctx is system-injected, not visible to AI
+    full_path = joinpath(ctx.root_path, path)
+    read(full_path, String)
+end
 
-@deftool "Read file with optional limit" function cat_file(path::String; limit::Union{Int,Nothing}=nothing)
-    content = read(path, String)
-    isnothing(limit) ? content : first_n_lines(content, limit)
+@deftool "Search workspace" function workspace_search(query::String; ctx::Context)
+    search(query, ctx.root_path)
 end
 ```
 """
@@ -74,15 +78,28 @@ macro deftool(args...)
     func_name, params, body = _parse_func(func_expr)
     struct_name = Symbol(_to_camel_case(string(func_name)), :Tool)
 
-    params_expr = _build_params_expr(params)
-    param_names = Set(p.name for p in params)
-    new_body = _transform_body(body, param_names)
+    # Separate schema params (for AI) from context params (system-injected)
+    schema_params = filter(p -> !_is_context_type(p.type), params)
+    context_params = filter(p -> _is_context_type(p.type), params)
+
+    params_expr = _build_params_expr(schema_params)
+
+    # Transform body: schema params -> tool.field, context params -> kw[:name]
+    schema_names = Set(p.name for p in schema_params)
+    context_names = Set(p.name for p in context_params)
+    new_body = _transform_body_with_context(body, schema_names, context_names)
 
     execute_body = :(tool.result = string($new_body))
 
     esc(quote
         @tool $struct_name $(string(func_name)) $description $params_expr (tool; kw...) -> $execute_body
     end)
+end
+
+"""Check if a type is a context type (Context or <:AbstractContext)."""
+function _is_context_type(type)
+    type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :Nothing)
+    type_sym in (:Context, :AbstractContext)
 end
 
 #==============================================================================#
@@ -315,10 +332,19 @@ function _type_to_schema(type)
 end
 
 function _transform_body(expr, param_names::Set{Symbol})
-    if expr isa Symbol && expr in param_names
-        return :(tool.$expr)
+    _transform_body_with_context(expr, param_names, Set{Symbol}())
+end
+
+"""Transform function body: schema params -> tool.field, context params -> kw[:name]"""
+function _transform_body_with_context(expr, schema_names::Set{Symbol}, context_names::Set{Symbol})
+    if expr isa Symbol
+        if expr in schema_names
+            return :(tool.$expr)
+        elseif expr in context_names
+            return :(kw[$(QuoteNode(expr))])
+        end
     elseif expr isa Expr
-        new_args = [_transform_body(arg, param_names) for arg in expr.args]
+        new_args = [_transform_body_with_context(arg, schema_names, context_names) for arg in expr.args]
         return Expr(expr.head, new_args...)
     end
     expr

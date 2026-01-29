@@ -43,6 +43,9 @@ include("schema.jl")
 # AbstractTool interface
 include("abstract_tool.jl")
 
+# Context for system-injected runtime data
+include("context.jl")
+
 # Tool definition macros (@deftool, @tool)
 include("tool_macros.jl")
 
