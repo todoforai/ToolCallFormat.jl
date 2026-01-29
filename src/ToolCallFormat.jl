@@ -1,48 +1,52 @@
 """
-ToolCallFormat.jl - Parse and generate LLM tool call formats
+ToolCallFormat.jl - Parse, define, and execute LLM tool calls
 
-A standalone Julia package for:
+A unified Julia package for:
 - Parsing function-call style tool invocations from LLM output
-- Streaming parsing with character-by-character state machine
-- Generating tool definitions and format documentation for prompts
-- Serializing tool calls back to text
-- Registering and dispatching tools via registry
+- Defining tools with @deftool (recommended) or @tool macros
+- Generating tool schemas for system prompts
+- AbstractTool interface for tool execution
 
 # Quick Start
 
 ```julia
 using ToolCallFormat
 
-# Parse a tool call
-call = parse_tool_call("read_file(path: \"/test.txt\")")
-call.name       # "read_file"
-call.kwargs     # Dict("path" => ParsedValue("/test.txt"))
+# Define a tool with @deftool (recommended)
+"Send keyboard input"
+@deftool send_key(text::String) = "Sending: \$text"
 
-# Define a tool with @tool macro
-@tool "cat_file" "Read a file" [
-    (:path, "string", "File path", true),
-] (call; kw...) -> read(kwargs(call).path, String)
+# Or with @tool for advanced cases
+@tool CatFileTool "cat_file" "Read file" [
+    (:path, "string", "File path", true, nothing),
+] (tool; kw...) -> read(tool.path, String)
 
-# Or register manually
-register_tool(:shell,
-    schema = ToolSchema(name="shell", description="Run command"),
-    handler = (call; kw...) -> run_command(kwargs(call).cmd)
-)
-
-# Execute via registry
-def = get_tool(:cat_file)
-result = def.handler(call)
+# Parse a tool call from LLM output
+call = parse_tool_call("send_key(text: \\"hello\\")")
+tool = create_tool(Send_keyTool, call)
+result = execute(tool)
 ```
 """
 module ToolCallFormat
 
-# Include all components
-include("types.jl")         # Core types (ParsedCall, ToolSchema, CallStyle, etc.)
-include("parser.jl")        # Recursive descent parser
-include("stream_processor.jl")  # Streaming state machine
-include("serializer.jl")    # Tool call → string
-include("schema.jl")        # Schema generation for prompts
-include("registry.jl")      # Tool registry (ToolDef, register_tool, etc.)
-include("macros.jl")        # @tool macro
+# Core types (ParsedCall, ToolSchema, CallStyle, etc.)
+include("types.jl")
+
+# Parsing and serialization
+include("parser.jl")
+include("stream_processor.jl")
+include("serializer.jl")
+
+# Schema generation for prompts
+include("schema.jl")
+
+# AbstractTool interface
+include("abstract_tool.jl")
+
+# Tool definition macros (@deftool, @tool)
+include("tool_macros.jl")
+
+# Registry for dynamic tool lookup (optional, for handler-based tools)
+include("registry.jl")
 
 end # module ToolCallFormat
