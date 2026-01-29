@@ -31,43 +31,39 @@ const RESERVED_FIELD_NAMES = Set([:id, :result])
 #==============================================================================#
 
 """
-    @deftool [StructName] function name(args...; kwargs...) ... end
-    @deftool [StructName] name(args...; kwargs...) = ...
+    @deftool "description" name(args...; kwargs...) = ...
+    @deftool "description" function name(args...; kwargs...) ... end
 
-Define a tool using function syntax. Docstring becomes description.
+Define a tool using function syntax. Description is passed as first argument.
+Struct name is auto-generated: `snake_case` → `CamelCaseTool`.
 
 # Examples
 
 ```julia
-"Send keyboard input"
-@deftool send_key(text::String) = "Sending keys: \$text"
+@deftool "Send keyboard input" send_key(text::String) = "Sending keys: \$text"
 
-"Execute shell commands"
-@deftool bash(cmd::CodeBlock) = run_shell(cmd)
+@deftool "Execute shell commands" bash(cmd::CodeBlock) = run_shell(cmd)
 
-"Click coordinates"
-@deftool click(x::Int, y::Int) = "Click at (\$x, \$y)"
+@deftool "Click coordinates" click(x::Int, y::Int) = "Click at (\$x, \$y)"
 
-"Search the web"
-@deftool web_search(query::String) = search_web(query)
+@deftool "Search the web" web_search(query::String) = search_web(query)
 
-"Read file with optional limit"
-@deftool function cat_file(path::String; limit::Union{Int,Nothing}=nothing)
+@deftool "Read file with optional limit" function cat_file(path::String; limit::Union{Int,Nothing}=nothing)
     content = read(path, String)
     isnothing(limit) ? content : first_n_lines(content, limit)
 end
 ```
 """
 macro deftool(args...)
-    # Parse args: [StructName] func_expr
-    struct_override = nothing
+    # Parse args: "description" func_expr
     func_expr = nothing
+    description = ""
 
     for arg in args
         if arg isa Expr
             func_expr = arg
-        elseif arg isa Symbol
-            struct_override = arg
+        elseif arg isa String
+            description = arg
         else
             error("@deftool: unexpected argument: $arg")
         end
@@ -75,10 +71,8 @@ macro deftool(args...)
 
     func_expr === nothing && error("@deftool: missing function expression")
 
-    docstring, func_expr = _extract_docstring(func_expr)
     func_name, params, body = _parse_func(func_expr)
-
-    struct_name = struct_override !== nothing ? struct_override : Symbol(_to_camel_case(string(func_name)), :Tool)
+    struct_name = Symbol(_to_camel_case(string(func_name)), :Tool)
 
     params_expr = _build_params_expr(params)
     param_names = Set(p.name for p in params)
@@ -87,7 +81,7 @@ macro deftool(args...)
     execute_body = :(tool.result = string($new_body))
 
     esc(quote
-        @tool $struct_name $(string(func_name)) $docstring $params_expr (tool; kw...) -> $execute_body
+        @tool $struct_name $(string(func_name)) $description $params_expr (tool; kw...) -> $execute_body
     end)
 end
 
@@ -248,15 +242,6 @@ end
 """Convert snake_case to CamelCase: send_key → SendKey"""
 function _to_camel_case(s::String)
     join(uppercasefirst.(split(s, '_')))
-end
-
-function _extract_docstring(expr)
-    if expr isa Expr && expr.head == :macrocall &&
-       length(expr.args) >= 4 && expr.args[1] == GlobalRef(Core, Symbol("@doc"))
-        doc = expr.args[3]
-        return (doc isa String ? doc : "", expr.args[4])
-    end
-    ("", expr)
 end
 
 function _parse_func(expr)
