@@ -150,11 +150,14 @@ macro deftool(args...)
 
     execute_body = :(tool.result = string($new_body))
 
-    # Use GlobalRef to reference @tool from this module regardless of call site
+    # Build the @tool call with GlobalRef to ensure correct module resolution
     tool_macro = GlobalRef(@__MODULE__, Symbol("@tool"))
-    quote
-        $(Expr(:macrocall, tool_macro, __source__, struct_name, string(func_name), description, params_expr, :((tool; kw...) -> $execute_body), internal_expr))
-    end
+    func_name_str = string(func_name)
+    execute_lambda = :((tool; kw...) -> $execute_body)
+
+    Expr(:macrocall, tool_macro, __source__,
+         esc(struct_name), func_name_str, description, params_expr,
+         esc(execute_lambda), internal_expr)
 end
 
 """Parse internal fields from tuple expression: (name::Type=default, ...)"""
