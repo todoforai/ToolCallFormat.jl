@@ -2,7 +2,7 @@
 #
 # Provides the interface that all tools must implement.
 
-export AbstractTool
+export AbstractTool, PreprocessContext
 export create_tool, preprocess, execute, get_id, is_cancelled
 export toolname, get_description, get_tool_schema, get_extra_description
 export result2string, resultimg2base64, resultaudio2base64
@@ -45,6 +45,17 @@ Optional:
 """
 abstract type AbstractTool end
 
+"""
+Context passed to preprocess for tools that need session/request information.
+Only EdgeModifyFileTool currently uses this for sending diff payloads to the edge.
+"""
+@kwdef struct PreprocessContext
+    todo_id::String = ""
+    message_id::String = ""
+    user_id::String = ""
+    client::Any = nothing
+end
+
 # Required interface - defaults warn if not implemented
 create_tool(::Type{T}, call::ParsedCall) where T <: AbstractTool = (@warn "Unimplemented create_tool for $T"; nothing)
 execute(tool::AbstractTool; kwargs...) = @warn "Unimplemented execute for $(typeof(tool))"
@@ -53,6 +64,7 @@ toolname(tool::AbstractTool) = toolname(typeof(tool))
 
 # Optional interface with defaults
 preprocess(tool::AbstractTool) = tool
+preprocess(tool::AbstractTool, ::PreprocessContext) = preprocess(tool)  # fallback delegates to single-arg
 get_id(tool::AbstractTool) = hasproperty(tool, :id) ? tool.id : uuid4()
 is_cancelled(::AbstractTool) = false
 get_cost(::AbstractTool) = nothing
