@@ -38,8 +38,29 @@ const RESERVED_FIELD_NAMES = Set([:id, :result])
 Define a tool using function syntax. Description is passed as first argument.
 Struct name is auto-generated: `snake_case` → `CamelCaseTool`.
 
+# Parameter descriptions
+
+Use `=>` with a named tuple to add descriptions and defaults to parameters:
+
+```julia
+@deftool "Send message" send(
+    text::String => (desc="The message content to send",),
+    priority::Int => (desc="Priority level (1-5)", default=3)
+) = ...
+```
+
+Supported parameter forms:
+- `x::Type`                                  → required, no description
+- `x::Type = val`                            → optional with default, no description
+- `x::Type => (desc="...",)`                 → required, with description
+- `x::Type => (desc="...", default=val)`     → optional with default and description
+
+# Context parameters
+
 Context kwargs (typed as `Context` or `<:AbstractContext`) are NOT exposed to AI.
 They are system-injected via execute kwargs.
+
+# Internal fields
 
 Internal fields (in tuple after description) become struct fields but are NOT in schema.
 Useful for preprocess hooks that need to store computed state.
@@ -47,17 +68,34 @@ Useful for preprocess hooks that need to store computed state.
 # Examples
 
 ```julia
-@deftool "Send keyboard input" send_key(text::String) = "Sending keys: \$text"
+@deftool "Send keyboard input" send_key(
+    text::String => (desc="The text to type",)
+) = "Sending keys: \$text"
 
-@deftool "Click coordinates" click(x::Int, y::Int) = "Click at (\$x, \$y)"
+@deftool "Click coordinates" click(
+    x::Int => (desc="X coordinate in pixels",),
+    y::Int => (desc="Y coordinate in pixels",)
+) = "Click at (\$x, \$y)"
 
-@deftool "Read file" function cat_file(path::String; ctx::Context)
+@deftool "Search with options" search(
+    query::String => (desc="Search query",),
+    limit::Int => (desc="Max results to return", default=10)
+) = "Searching for \$query (limit \$limit)"
+
+@deftool "Read file" function cat_file(
+    path::String => (desc="Path to the file to read",);
+    ctx::Context
+)
     full_path = joinpath(ctx.root_path, path)
     read(full_path, String)
 end
 
 # With internal fields for preprocess hook
-@deftool "Modify file" (postcontent::String="", model=["gpt4o"]) function modify_file(file_path::String, content::CodeBlock; ctx::Context)
+@deftool "Modify file" (postcontent::String="", model=["gpt4o"]) function modify_file(
+    file_path::String => (desc="Path to the file to modify",),
+    content::CodeBlock => (desc="New content for the file",);
+    ctx::Context
+)
     # postcontent is set by preprocess, not by AI
     apply_changes(file_path, postcontent, ctx)
 end
@@ -379,7 +417,7 @@ end
 function _parse_sig(sig)
     sig.head == :call || error("@deftool: invalid signature")
     func_name = sig.args[1]
-    params = NamedTuple{(:name, :type, :required, :default), Tuple{Symbol, Any, Bool, Any}}[]
+    params = NamedTuple{(:name, :type, :required, :default, :desc), Tuple{Symbol, Any, Bool, Any, String}}[]
 
     for arg in sig.args[2:end]
         if arg isa Expr && arg.head == :parameters
@@ -393,19 +431,84 @@ function _parse_sig(sig)
     (func_name, params)
 end
 
+"""
+Parse a parameter expression, supporting optional description via `=>` syntax.
+
+Supported forms:
+- `x::Type`                                  → required, no desc, no default
+- `x::Type = val`                            → optional, no desc, with default
+- `x::Type => (desc="...",)`                 → required, with desc, no default
+- `x::Type => (desc="...", default=val)`     → optional, with desc, with default
+- `x` (untyped)                              → defaults to String type
+"""
 function _parse_param(expr, is_positional)
+    # Case 1: Has top-level default (head == :kw means `something = default`)
+    # This handles: `x::Type = val` (no description)
     if expr isa Expr && expr.head == :kw
-        name, type = _parse_typed(expr.args[1])
-        return (name=name, type=type, required=false, default=expr.args[2])
+        lhs = expr.args[1]
+        default = expr.args[2]
+        name, type = _parse_typed(lhs)
+        return (name=name, type=type, required=false, default=default, desc="")
     end
+
+    # Case 2: Has `=>` with named tuple: `x::Type => (desc="...", default=...)`
+    if expr isa Expr && expr.head == :call && expr.args[1] == :(=>)
+        typed_part = expr.args[2]
+        spec = expr.args[3]
+        name, type = _parse_typed(typed_part)
+        desc, default = _parse_param_spec(spec)
+        required = default === nothing ? is_positional : false
+        return (name=name, type=type, required=required, default=default, desc=desc)
+    end
+
+    # Case 3: Just typed, no description: `x::Type`
     if expr isa Expr && expr.head == :(::)
         name, type = _parse_typed(expr)
-        return (name=name, type=type, required=is_positional, default=nothing)
+        return (name=name, type=type, required=is_positional, default=nothing, desc="")
     end
+
+    # Case 4: Just a symbol (untyped): `x`
     if expr isa Symbol
-        return (name=expr, type=:String, required=is_positional, default=nothing)
+        return (name=expr, type=:String, required=is_positional, default=nothing, desc="")
     end
+
     error("@deftool: cannot parse param: $expr")
+end
+
+"""
+Parse the spec part after `=>`: named tuple `(desc="...", default=...)` or just a string.
+
+Returns (description::String, default::Any)
+"""
+function _parse_param_spec(spec)
+    # Simple string: `x::Type => "description"` (for backwards compat / convenience)
+    if spec isa String
+        return (spec, nothing)
+    end
+
+    # Named tuple: `(desc="...", default=...)`
+    if spec isa Expr && spec.head == :tuple
+        desc = ""
+        default = nothing
+        for arg in spec.args
+            if arg isa Expr && arg.head == :(=)
+                key, val = arg.args
+                if key == :desc
+                    val isa String || error("@deftool: desc must be a string literal, got: $val")
+                    desc = val
+                elseif key == :default
+                    default = val
+                else
+                    error("@deftool: unknown parameter spec key: $key (expected desc or default)")
+                end
+            else
+                error("@deftool: parameter spec must be named tuple like (desc=\"...\", default=...), got: $arg")
+            end
+        end
+        return (desc, default)
+    end
+
+    error("@deftool: parameter spec must be a string or named tuple (desc=\"...\", default=...), got: $spec")
 end
 
 function _parse_typed(expr)
@@ -421,7 +524,7 @@ function _build_params_expr(params)
     tuples = map(params) do p
         schema_type = _type_to_schema(p.type)
         default_expr = p.default === nothing ? :nothing : p.default
-        :($(QuoteNode(p.name)), $schema_type, "", $(p.required), $default_expr)
+        :($(QuoteNode(p.name)), $schema_type, $(p.desc), $(p.required), $default_expr)
     end
     Expr(:vect, tuples...)
 end
