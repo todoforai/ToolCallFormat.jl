@@ -151,7 +151,7 @@ macro deftool(args...)
     execute_body = :(tool.result = string($new_body))
 
     esc(quote
-        @tool $struct_name $(string(func_name)) $description $params_expr (tool; kw...) -> $execute_body $internal_expr
+        ToolCallFormat.@tool $struct_name $(string(func_name)) $description $params_expr (tool; kw...) -> $execute_body $internal_expr
     end)
 end
 
