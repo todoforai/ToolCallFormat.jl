@@ -6,6 +6,7 @@ A standalone Julia package for:
 - Streaming parsing with character-by-character state machine
 - Generating tool definitions and format documentation for prompts
 - Serializing tool calls back to text
+- Registering and dispatching tools via registry
 
 # Quick Start
 
@@ -17,22 +18,20 @@ call = parse_tool_call("read_file(path: \"/test.txt\")")
 call.name       # "read_file"
 call.kwargs     # Dict("path" => ParsedValue("/test.txt"))
 
-# Stream processing
-sp = StreamProcessor(
-    known_tools = Set([:read_file, :shell]),
-    emit_text = text -> print(text),
-    emit_tool = call -> handle_tool(call)
-)
-process_chunk!(sp, chunk)
-finalize!(sp)
+# Define a tool with @tool macro
+@tool "cat_file" "Read a file" [
+    (:path, "string", "File path", true),
+] (call; kw...) -> read(kwargs(call).path, String)
 
-# Generate tool documentation
-schema = ToolSchema(
-    name="read_file",
-    params=[ParamSchema(name="path", type="string", description="File path")],
-    description="Read a file"
+# Or register manually
+register_tool(:shell,
+    schema = ToolSchema(name="shell", description="Run command"),
+    handler = (call; kw...) -> run_command(kwargs(call).cmd)
 )
-generate_tool_definition(schema)
+
+# Execute via registry
+def = get_tool(:cat_file)
+result = def.handler(call)
 ```
 """
 module ToolCallFormat
@@ -43,5 +42,7 @@ include("parser.jl")        # Recursive descent parser
 include("stream_processor.jl")  # Streaming state machine
 include("serializer.jl")    # Tool call → string
 include("schema.jl")        # Schema generation for prompts
+include("registry.jl")      # Tool registry (ToolDef, register_tool, etc.)
+include("macros.jl")        # @tool macro
 
 end # module ToolCallFormat

@@ -1,9 +1,13 @@
 name = "ToolCallFormat"
 uuid = "ae3acb55-b8cb-46d1-89eb-5b4f98bcbe10"
-authors = ["Cvikli <havlikmarcell@gmail.com>"]
 version = "0.1.0"
+authors = ["Cvikli <havlikmarcell@gmail.com>"]
+
+[deps]
+UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [compat]
+UUIDs = "1.11.0"
 julia = "1.10"
 
 [extras]
