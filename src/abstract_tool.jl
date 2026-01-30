@@ -7,7 +7,7 @@ export create_tool, preprocess, execute, get_id, is_cancelled
 export toolname, get_description, get_tool_schema, get_extra_description
 export result2string, resultimg2base64, resultaudio2base64
 export is_executable, get_cost
-export description_from_schema
+export description_from_schema, permission_pattern
 
 using UUIDs: UUID, uuid4
 
@@ -84,6 +84,11 @@ resultaudio2base64(::AbstractTool)::String = ""
 # Whether this tool can be executed (false for wrapper tools like TextTool, ReasonTool)
 is_executable(::Type{<:AbstractTool}) = true
 is_executable(tool::AbstractTool) = is_executable(typeof(tool))
+
+# Permission pattern for permission checking - tools can override this
+# Returns nothing by default, meaning use the fallback logic in get_tool_pattern
+permission_pattern(::Type{<:AbstractTool}) = nothing
+permission_pattern(tool::AbstractTool) = permission_pattern(typeof(tool))
 
 """Generate description from a schema NamedTuple."""
 function description_from_schema(schema)

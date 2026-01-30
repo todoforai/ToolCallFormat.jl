@@ -189,6 +189,7 @@ function handle_ident_state!(sp::StreamProcessor, c::Char)
             write(sp.tool_buf, '(')
         else
             # Not a tool - emit as regular text
+            @warn "Tool not in known_tools, emitting as text" tool_name=name known_tools=sp.known_tools
             emit_as_text!(sp, name, c)
         end
     else
