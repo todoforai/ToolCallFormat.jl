@@ -144,7 +144,8 @@ macro deftool(args...)
     end
 
     # Convert internal fields: [(name, type, default), ...]
-    internal_for_gen = [(f.name, f.type, f.default) for f in internal_fields]
+    # Types must be escaped to evaluate in caller's context (for types like CallToolResult from other modules)
+    internal_for_gen = [(f.name, esc(f.type), f.default) for f in internal_fields]
 
     # Transform body: schema params -> tool.field, internal fields -> tool.field
     # ctx stays as ctx (passed directly to execute)
