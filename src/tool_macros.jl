@@ -1,9 +1,6 @@
 # Tool definition macros
-#
-# @deftool - Primary, function-style (recommended)
-# @tool    - Verbose style (for advanced cases)
 
-export @tool, @deftool, CodeBlock
+export @deftool, CodeBlock
 
 using UUIDs: UUID, uuid4
 
@@ -27,7 +24,7 @@ const VALID_SCHEMA_TYPES = Set(["string", "codeblock", "number", "integer", "boo
 const RESERVED_FIELD_NAMES = Set([:id, :result])
 
 #==============================================================================#
-# @deftool - Function-style macro (primary)
+# @deftool - Function-style macro
 #==============================================================================#
 
 """
@@ -40,20 +37,20 @@ Struct name is auto-generated: `snake_case` → `CamelCaseTool`.
 
 # Parameter descriptions
 
-Use `=>` with a named tuple to add descriptions and defaults to parameters:
+Use `"description" => param` syntax (description first) for documented parameters:
 
 ```julia
 @deftool "Send message" send(
-    text::String => (desc="The message content to send",),
-    priority::Int => (desc="Priority level (1-5)", default=3)
+    "The message content to send" => text::String,
+    "Priority level (1-5)" => priority::Int = 3
 ) = ...
 ```
 
 Supported parameter forms:
-- `x::Type`                                  → required, no description
-- `x::Type = val`                            → optional with default, no description
-- `x::Type => (desc="...",)`                 → required, with description
-- `x::Type => (desc="...", default=val)`     → optional with default and description
+- `x::Type`                       → required, no description
+- `x::Type = val`                 → optional with default, no description
+- `"desc" => x::Type`             → required, with description
+- `"desc" => x::Type = val`       → optional with default and description
 
 # Context parameters
 
@@ -69,21 +66,21 @@ Useful for preprocess hooks that need to store computed state.
 
 ```julia
 @deftool "Send keyboard input" send_key(
-    text::String => (desc="The text to type",)
+    "The text to type" => text::String
 ) = "Sending keys: \$text"
 
 @deftool "Click coordinates" click(
-    x::Int => (desc="X coordinate in pixels",),
-    y::Int => (desc="Y coordinate in pixels",)
+    "X coordinate in pixels" => x::Int,
+    "Y coordinate in pixels" => y::Int
 ) = "Click at (\$x, \$y)"
 
 @deftool "Search with options" search(
-    query::String => (desc="Search query",),
-    limit::Int => (desc="Max results to return", default=10)
+    "Search query" => query::String,
+    "Max results to return" => limit::Int = 10
 ) = "Searching for \$query (limit \$limit)"
 
 @deftool "Read file" function cat_file(
-    path::String => (desc="Path to the file to read",);
+    "Path to the file to read" => path::String;
     ctx::Context
 )
     full_path = joinpath(ctx.root_path, path)
@@ -92,8 +89,8 @@ end
 
 # With internal fields for preprocess hook
 @deftool "Modify file" (postcontent::String="", model=["gpt4o"]) function modify_file(
-    file_path::String => (desc="Path to the file to modify",),
-    content::CodeBlock => (desc="New content for the file",);
+    "Path to the file to modify" => file_path::String,
+    "New content for the file" => content::CodeBlock;
     ctx::Context
 )
     # postcontent is set by preprocess, not by AI
@@ -134,31 +131,40 @@ macro deftool(args...)
     # Parse internal fields
     internal_fields = _parse_internal_fields(internal_fields_expr)
 
-    # Separate schema params (for AI) from context params (system-injected)
-    schema_params = filter(p -> !_is_context_type(p.type), params)
-    context_params = filter(p -> _is_context_type(p.type), params)
+    # Separate schema params (for AI) from context param (always named 'ctx', after semicolon)
+    schema_params = filter(p -> p.name != :ctx, params)
 
-    # Build params for @tool (schema params only, internal fields passed separately)
-    params_expr = _build_params_expr(schema_params)
-    internal_expr = _build_internal_expr(internal_fields)
+    # Convert to format for code generation: [(name, schema_type, desc, required, default), ...]
+    params_for_gen = [(p.name, _type_to_schema(p.type), p.desc, p.required, p.default)
+                      for p in schema_params]
 
-    # Transform body: schema params -> tool.field, context params -> kw[:name], internal -> tool.field
+    # Validate params
+    for (i, p) in enumerate(params_for_gen)
+        _validate_param(p, i)
+    end
+
+    # Convert internal fields: [(name, type, default), ...]
+    internal_for_gen = [(f.name, f.type, f.default) for f in internal_fields]
+
+    # Transform body: schema params -> tool.field, internal fields -> tool.field
+    # ctx stays as ctx (passed directly to execute)
     schema_names = Set(p.name for p in schema_params)
-    context_names = Set(p.name for p in context_params)
     internal_names = Set(f.name for f in internal_fields)
-    new_body = _transform_body_with_context(body, union(schema_names, internal_names), context_names)
+    new_body = _transform_body(body, union(schema_names, internal_names))
 
     execute_body = :(tool.result = string($new_body))
-
-    # Build the @tool call with GlobalRef to ensure correct module resolution
-    tool_macro = GlobalRef(@__MODULE__, Symbol("@tool"))
     func_name_str = string(func_name)
-    execute_lambda = :((tool; kw...) -> $execute_body)
+    # Execute takes (tool, ctx) - ctx is always available in the body
+    execute_lambda = :((tool, ctx) -> $execute_body)
 
-    # Escape internal_expr so types resolve in caller's module scope
-    Expr(:macrocall, tool_macro, __source__,
-         esc(struct_name), func_name_str, description, params_expr,
-         esc(execute_lambda), esc(internal_expr))
+    sn = esc(struct_name)
+    is_passive = isempty(params_for_gen) && isempty(internal_for_gen)
+
+    if is_passive
+        _generate_passive_tool(sn, func_name_str, description)
+    else
+        _generate_active_tool(sn, func_name_str, description, params_for_gen, execute_lambda, internal_for_gen)
+    end
 end
 
 """Parse internal fields from tuple expression: (name::Type=default, ...)"""
@@ -190,16 +196,6 @@ function _parse_internal_fields(expr)
     fields
 end
 
-"""Build internal fields expression for @tool"""
-function _build_internal_expr(fields)
-    isempty(fields) && return :nothing
-    tuples = map(fields) do f
-        default_expr = f.default === nothing ? :nothing : f.default
-        :($(QuoteNode(f.name)), $(f.type), $default_expr)
-    end
-    Expr(:vect, tuples...)
-end
-
 """Check if an assignment expression looks like an internal field (name::Type=default)."""
 function _looks_like_internal_field(expr)
     # Internal field: name::Type = default
@@ -211,68 +207,6 @@ function _looks_like_internal_field(expr)
     # If LHS is a symbol, it could be internal field with inferred type: name = default
     lhs isa Symbol && return true
     false
-end
-
-"""Check if a type is a context type (Context, ToolContext, or <:AbstractContext)."""
-function _is_context_type(type)
-    type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :Nothing)
-    type_sym in (:Context, :ToolContext, :AbstractContext)
-end
-
-#==============================================================================#
-# @tool - Verbose macro (advanced)
-#==============================================================================#
-
-"""
-    @tool StructName "tool_name" "description" [params] [execute_fn] [internal_fields]
-
-Define a tool with explicit schema. Use @deftool for simpler syntax.
-
-# Params format
-    [(:name, "type", "description", required, default), ...]
-
-Types: "string", "codeblock", "number", "integer", "boolean", "array", "object"
-
-# Example
-```julia
-@tool CatFileTool "cat_file" "Read file contents" [
-    (:path, "string", "File path", true, nothing),
-    (:limit, "integer", "Max lines", false, nothing),
-] (tool; kw...) -> tool.result = read(tool.path, String)
-```
-"""
-macro tool(struct_name, tool_name, description, params_expr=:([]), execute_expr=nothing, internal_expr=nothing)
-    params = _parse_params_ast(params_expr)
-    for (i, p) in enumerate(params)
-        _validate_param(p, i)
-    end
-
-    internal_fields = _parse_internal_ast(internal_expr)
-
-    sn = esc(struct_name)
-    is_passive = isempty(params) && isempty(internal_fields)
-
-    if is_passive
-        _generate_passive_tool(sn, tool_name, description)
-    else
-        _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields)
-    end
-end
-
-"""Parse internal fields AST: [(:name, Type, default), ...]"""
-function _parse_internal_ast(expr)
-    (expr === nothing || expr == :nothing) && return []
-    expr isa Expr && expr.head == :vect || return []
-    result = []
-    for item in expr.args
-        item isa Expr && item.head == :tuple || continue
-        length(item.args) >= 2 || continue
-        name = item.args[1] isa QuoteNode ? item.args[1].value : item.args[1]
-        type = item.args[2]
-        default = length(item.args) >= 3 ? item.args[3] : nothing
-        push!(result, (name, type, default))
-    end
-    result
 end
 
 #==============================================================================#
@@ -352,7 +286,7 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
     _add_create_tool!(result, sn, params)
 
     if execute_expr !== nothing
-        push!(result.args, :(ToolCallFormat.execute(tool::$sn; kwargs...) = $(esc(execute_expr))(tool; kwargs...)))
+        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = $(esc(execute_expr))(tool, ctx)))
     end
 
     push!(result.args, :(ToolCallFormat.result2string(tool::$sn)::String = tool.result))
@@ -440,29 +374,54 @@ end
 """
 Parse a parameter expression into normalized (name, type, required, default, desc) tuple.
 
-Supported forms:
+Supported forms (recommended - description first):
 - `x::Type`                              → required, no description
-- `x::Type = val`                        → optional with default
-- `x::Type => (desc="...",)`             → required with description
+- `x::Type = val`                        → optional with default, no description
+- `"desc" => x::Type`                    → required with description
+- `"desc" => x::Type = val`              → optional with description and default
+
+Legacy forms (still supported):
+- `x::Type => "desc"`                    → required with description
 - `x::Type => (desc="...", default=val)` → optional with both
-- `x` (untyped)                          → defaults to String type
 
 The `is_positional` flag determines if params without defaults are required.
 """
 function _parse_param(expr, is_positional)
     # Case 1: Has top-level default (head == :kw means `something = default`)
-    # This handles: `x::Type = val` (no description)
     if expr isa Expr && expr.head == :kw
         lhs = expr.args[1]
         default = expr.args[2]
+
+        # New style: "desc" => x::Type = val (description-first with default)
+        if lhs isa Expr && lhs.head == :call && lhs.args[1] == :(=>)
+            desc = lhs.args[2]
+            typed_part = lhs.args[3]
+            if desc isa String
+                name, type = _parse_typed(typed_part)
+                return (name=name, type=type, required=false, default=default, desc=desc)
+            end
+            # Fall through to legacy handling if first arg isn't a string
+        end
+
+        # Regular: x::Type = val (no description)
         name, type = _parse_typed(lhs)
         return (name=name, type=type, required=false, default=default, desc="")
     end
 
-    # Case 2: Has `=>` with spec: `x::Type => (desc="...", default=...)`
+    # Case 2: Has `=>` - could be new description-first or legacy style
     if expr isa Expr && expr.head == :call && expr.args[1] == :(=>)
-        typed_part = expr.args[2]
-        spec = expr.args[3]
+        first_arg = expr.args[2]
+        second_arg = expr.args[3]
+
+        # New style: "desc" => x::Type (description first, no default)
+        if first_arg isa String
+            name, type = _parse_typed(second_arg)
+            return (name=name, type=type, required=is_positional, default=nothing, desc=first_arg)
+        end
+
+        # Legacy style: x::Type => "desc" or x::Type => (desc="...", default=...)
+        typed_part = first_arg
+        spec = second_arg
         name, type = _parse_typed(typed_part)
         desc, default = _parse_param_spec(spec)
         has_default = default !== nothing
@@ -531,15 +490,6 @@ function _parse_typed(expr)
     (name, type)
 end
 
-function _build_params_expr(params)
-    tuples = map(params) do p
-        schema_type = _type_to_schema(p.type)
-        default_expr = p.default === nothing ? :nothing : p.default
-        :($(QuoteNode(p.name)), $schema_type, $(p.desc), $(p.required), $default_expr)
-    end
-    Expr(:vect, tuples...)
-end
-
 function _type_to_schema(type)
     type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :String)
     type_map = Dict(:String => "string", :Int => "integer", :Int64 => "integer",
@@ -548,42 +498,18 @@ function _type_to_schema(type)
     get(type_map, type_sym, "string")
 end
 
+"""Transform function body: schema/internal params -> tool.field (ctx stays as ctx)"""
 function _transform_body(expr, param_names::Set{Symbol})
-    _transform_body_with_context(expr, param_names, Set{Symbol}())
-end
-
-"""Transform function body: schema params -> tool.field, context params -> kw[:name]"""
-function _transform_body_with_context(expr, schema_names::Set{Symbol}, context_names::Set{Symbol})
     if expr isa Symbol
-        if expr in schema_names
+        if expr in param_names
             return :(tool.$expr)
-        elseif expr in context_names
-            return :(kw[$(QuoteNode(expr))])
         end
+        # ctx and tool stay as-is (available in execute scope)
     elseif expr isa Expr
-        new_args = [_transform_body_with_context(arg, schema_names, context_names) for arg in expr.args]
+        new_args = [_transform_body(arg, param_names) for arg in expr.args]
         return Expr(expr.head, new_args...)
     end
     expr
-end
-
-function _parse_params_ast(expr)
-    expr isa Expr && expr.head == :vect || error("@tool params must be [...], got: $(typeof(expr))")
-    [_parse_single_param_ast(arg) for arg in expr.args]
-end
-
-function _parse_single_param_ast(expr)
-    expr isa Expr && expr.head == :tuple || error("Each param must be a tuple, got: $expr")
-    length(expr.args) == 5 || error("Param tuple must have 5 elements, got $(length(expr.args))")
-
-    name = expr.args[1] isa QuoteNode ? expr.args[1].value : expr.args[1]
-    type_str = expr.args[2]
-    desc = expr.args[3]
-    req = expr.args[4]
-    default = expr.args[5]
-    default = (default isa Symbol && default == :nothing) ? nothing : default
-
-    (name, type_str, desc, req, default)
 end
 
 function _validate_param(param, index)

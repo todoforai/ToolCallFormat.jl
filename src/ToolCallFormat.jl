@@ -3,7 +3,7 @@ ToolCallFormat.jl - Parse, define, and execute LLM tool calls
 
 A unified Julia package for:
 - Parsing function-call style tool invocations from LLM output
-- Defining tools with @deftool (recommended) or @tool macros
+- Defining tools with @deftool macro
 - Generating tool schemas for system prompts
 - AbstractTool interface for tool execution
 
@@ -12,18 +12,20 @@ A unified Julia package for:
 ```julia
 using ToolCallFormat
 
-# Define a tool with @deftool (recommended)
-"Send keyboard input"
-@deftool send_key(text::String) = "Sending: \$text"
+# Define a tool with @deftool
+@deftool "Send keyboard input" send_key(
+    "The text to send" => text::String
+) = "Sending: \$text"
 
-# Or with @tool for advanced cases
-@tool CatFileTool "cat_file" "Read file" [
-    (:path, "string", "File path", true, nothing),
-] (tool; kw...) -> read(tool.path, String)
+@deftool "Read file" function cat_file(
+    "File path" => path::String
+)
+    read(path, String)
+end
 
 # Parse a tool call from LLM output
 call = parse_tool_call("send_key(text: \\"hello\\")")
-tool = create_tool(Send_keyTool, call)
+tool = create_tool(SendKeyTool, call)
 result = execute(tool)
 ```
 """
@@ -40,13 +42,13 @@ include("serializer.jl")
 # Schema generation for prompts
 include("schema.jl")
 
+# Context for system-injected runtime data (must be before abstract_tool.jl)
+include("context.jl")
+
 # AbstractTool interface
 include("abstract_tool.jl")
 
-# Context for system-injected runtime data
-include("context.jl")
-
-# Tool definition macros (@deftool, @tool)
+# Tool definition macros (@deftool)
 include("tool_macros.jl")
 
 # Registry for dynamic tool lookup (optional, for handler-based tools)

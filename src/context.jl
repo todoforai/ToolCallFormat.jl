@@ -1,63 +1,26 @@
 # Context - System-injected runtime context for tools
 #
-# Tools can declare `ctx::Context` as a kwarg to receive system context.
+# Tools can declare `ctx::AbstractContext` as a kwarg to receive system context.
+# Any type ending in "Context" is recognized as a context type.
 # This is NOT exposed to the AI - it's injected by the system at execute time.
 
-export AbstractContext, Context
+export AbstractContext
 
 """
 Base type for tool execution context.
-Subtypes can add domain-specific fields.
-"""
-abstract type AbstractContext end
 
-"""
-    Context(; wrapper=nothing, client=nothing, flow=nothing, ...)
+Tools should use `ctx::AbstractContext` and duck-type on fields they need.
+Applications define concrete subtypes (e.g., RuntimeContext) with typed fields.
 
-Universal runtime context injected into tools by the system.
-Contains everything tools might need - wrapper, client, flow, paths, etc.
+Common fields by convention:
+- `root_path::String` - workspace root path
 
-# Fields
-- `wrapper::Any` - IO wrapper for sending payloads (TodoIOWrapper, AbstractIOWrapper)
-- `client::Any` - Direct client access
-- `flow::Any` - Current workflow (STDFlow, etc.)
-- `root_path::String` - Workspace/project root directory
-- `user_id::String` - Current user identifier
-- `session_id::String` - Current session identifier
-- `extras::Dict{Symbol,Any}` - Extensible key-value storage for additional context
-
-# Example
+Example:
 ```julia
-@deftool "Navigate to URL" function browser_navigate(
-    url::String => (desc="URL to navigate to",);
-    ctx::Context
-)
-    client = ctx.wrapper.client
-    browser_execute(client, "browser_navigate", Dict("url" => url); session_id=ctx.wrapper.todo_id)
+@deftool "Read file" function cat_file(path::String; ctx::AbstractContext)
+    full_path = joinpath(ctx.root_path, path)  # duck-typed access
+    read(full_path, String)
 end
-
-# System calls execute with context
-execute(tool; ctx=Context(wrapper=io, root_path="/project"))
 ```
 """
-@kwdef struct Context <: AbstractContext
-    # Common tool dependencies
-    wrapper::Any = nothing      # TodoIOWrapper for sending payloads
-    client::Any = nothing       # Direct client access
-    flow::Any = nothing         # Current workflow
-
-    # Path and identity
-    root_path::String = ""
-    user_id::String = ""
-    session_id::String = ""
-
-    # Extensible storage for anything else
-    extras::Dict{Symbol,Any} = Dict{Symbol,Any}()
-end
-
-# Convenience accessor for extras - allows ctx.anything syntax
-Base.getproperty(ctx::Context, name::Symbol) =
-    name in fieldnames(Context) ? getfield(ctx, name) : get(ctx.extras, name, nothing)
-
-Base.setproperty!(ctx::Context, name::Symbol, value) =
-    name in fieldnames(Context) ? setfield!(ctx, name, value) : (ctx.extras[name] = value)
+abstract type AbstractContext end
