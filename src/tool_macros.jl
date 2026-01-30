@@ -380,10 +380,6 @@ Supported forms (recommended - description first):
 - `"desc" => x::Type`                    → required with description
 - `"desc" => x::Type = val`              → optional with description and default
 
-Legacy forms (still supported):
-- `x::Type => "desc"`                    → required with description
-- `x::Type => (desc="...", default=val)` → optional with both
-
 The `is_positional` flag determines if params without defaults are required.
 """
 function _parse_param(expr, is_positional)
@@ -413,20 +409,14 @@ function _parse_param(expr, is_positional)
         first_arg = expr.args[2]
         second_arg = expr.args[3]
 
-        # New style: "desc" => x::Type (description first, no default)
+        # "desc" => x::Type (description first, no default)
         if first_arg isa String
             name, type = _parse_typed(second_arg)
             return (name=name, type=type, required=is_positional, default=nothing, desc=first_arg)
         end
 
-        # Legacy style: x::Type => "desc" or x::Type => (desc="...", default=...)
-        typed_part = first_arg
-        spec = second_arg
-        name, type = _parse_typed(typed_part)
-        desc, default = _parse_param_spec(spec)
-        has_default = default !== nothing
-        required = !has_default && is_positional
-        return (name=name, type=type, required=required, default=default, desc=desc)
+        # Legacy syntax not supported - description must come first
+        error("@deftool: description must come first. Use `\"description\" => param::Type` instead of `param::Type => \"description\"`")
     end
 
     # Case 3: Just typed, no description: `x::Type`
@@ -441,42 +431,6 @@ function _parse_param(expr, is_positional)
     end
 
     error("@deftool: cannot parse param: $expr")
-end
-
-"""
-Parse the spec after `=>`. Accepts:
-- String: `"description"` → returns ("description", nothing)
-- Named tuple: `(desc="...", default=val)` → returns ("...", val)
-"""
-function _parse_param_spec(spec)
-    # Simple string shorthand: `x::Type => "description"`
-    if spec isa String
-        return (spec, nothing)
-    end
-
-    # Named tuple: `(desc="...", default=...)`
-    if spec isa Expr && spec.head == :tuple
-        desc = ""
-        default = nothing
-        for arg in spec.args
-            if arg isa Expr && arg.head == :(=)
-                key, val = arg.args
-                if key == :desc
-                    val isa String || error("@deftool: desc must be a string literal, got: $val")
-                    desc = val
-                elseif key == :default
-                    default = val
-                else
-                    error("@deftool: unknown parameter spec key: $key (expected desc or default)")
-                end
-            else
-                error("@deftool: parameter spec must be named tuple like (desc=\"...\", default=...), got: $arg")
-            end
-        end
-        return (desc, default)
-    end
-
-    error("@deftool: parameter spec must be a string or named tuple (desc=\"...\", default=...), got: $spec")
 end
 
 """Extract (name, type) from `name::Type`. Unwraps `Union{T, Nothing}` to just `T`."""
@@ -506,6 +460,10 @@ function _transform_body(expr, param_names::Set{Symbol})
         end
         # ctx and tool stay as-is (available in execute scope)
     elseif expr isa Expr
+        if expr.head == :kw
+            # Keyword argument: don't transform the keyword name (first arg), only the value (second arg)
+            return Expr(:kw, expr.args[1], _transform_body(expr.args[2], param_names))
+        end
         new_args = [_transform_body(arg, param_names) for arg in expr.args]
         return Expr(expr.head, new_args...)
     end

@@ -134,10 +134,10 @@ const test_ctx = TestContext()
     end
 
     @testset "@deftool Parameter Descriptions" begin
-        # Tool with description and default
+        # Tool with description and default (description-first syntax)
         @deftool "Test tool" test_desc(
-            name::String => (desc="The name",),
-            count::Int => (desc="How many", default=5)
+            "The name" => name::String,
+            "How many" => count::Int = 5
         ) = "name=$name, count=$count"
 
         schema = get_tool_schema(TestDescTool)
@@ -161,40 +161,32 @@ const test_ctx = TestContext()
         execute(tool, test_ctx)
         @test tool.result == "name=alice, count=5"
 
-        # String shorthand syntax (legacy)
-        @deftool "Shorthand test" test_short(
-            msg::String => "The message"
-        ) = msg
-
-        schema2 = get_tool_schema(TestShortTool)
-        @test schema2.params[1].description == "The message"
-
-        # NEW: Description-first syntax (recommended)
+        # Description-first syntax with various types
         @deftool "Description first test" test_desc_first(
             "The path to read" => path::String,
             "Maximum lines" => limit::Int = 10
         ) = "path=$path, limit=$limit"
 
-        schema3 = get_tool_schema(TestDescFirstTool)
-        @test schema3.name == "test_desc_first"
-        @test length(schema3.params) == 2
+        schema2 = get_tool_schema(TestDescFirstTool)
+        @test schema2.name == "test_desc_first"
+        @test length(schema2.params) == 2
 
         # Check first param (required, desc-first)
-        p1 = schema3.params[1]
+        p1 = schema2.params[1]
         @test p1.name == "path"
         @test p1.description == "The path to read"
         @test p1.required == true
 
         # Check second param (optional with default, desc-first)
-        p2 = schema3.params[2]
+        p2 = schema2.params[2]
         @test p2.name == "limit"
         @test p2.description == "Maximum lines"
         @test p2.required == false
 
         # Test execution
-        tool3 = create_tool(TestDescFirstTool, parse_tool_call("test_desc_first(path: \"/foo\")\n"))
-        execute(tool3, test_ctx)
-        @test tool3.result == "path=/foo, limit=10"
+        tool2 = create_tool(TestDescFirstTool, parse_tool_call("test_desc_first(path: \"/foo\")\n"))
+        execute(tool2, test_ctx)
+        @test tool2.result == "path=/foo, limit=10"
 
         println("✓ @deftool parameter descriptions tests passed")
     end
