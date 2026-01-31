@@ -55,7 +55,7 @@ toolname(tool::AbstractTool) = toolname(typeof(tool))
 
 # Optional interface with defaults
 preprocess(tool::AbstractTool, ::AbstractContext) = tool
-get_id(tool::AbstractTool) = hasproperty(tool, :id) ? tool.id : uuid4()
+get_id(tool::AbstractTool) = hasproperty(tool, :_id) ? tool._id : uuid4()
 is_cancelled(::AbstractTool) = false
 get_cost(::AbstractTool) = nothing
 

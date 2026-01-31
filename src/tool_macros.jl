@@ -21,7 +21,7 @@ Base.string(cb::CodeBlock) = cb.content
 #==============================================================================#
 
 const VALID_SCHEMA_TYPES = Set(["string", "codeblock", "number", "integer", "boolean", "array", "object"])
-const RESERVED_FIELD_NAMES = Set([:id, :result])
+const RESERVED_FIELD_NAMES = Set([:_id, :result])
 
 #==============================================================================#
 # @deftool - Function-style macro
@@ -144,8 +144,7 @@ macro deftool(args...)
     end
 
     # Convert internal fields: [(name, type, default), ...]
-    # Types must be escaped to evaluate in caller's context (for types like CallToolResult from other modules)
-    internal_for_gen = [(f.name, esc(f.type), f.default) for f in internal_fields]
+    internal_for_gen = [(f.name, f.type, f.default) for f in internal_fields]
 
     # Transform body: schema params -> tool.field, internal fields -> tool.field
     # ctx stays as ctx (passed directly to execute)
@@ -217,7 +216,7 @@ end
 function _generate_passive_tool(sn, tool_name, description)
     quote
         @kwdef mutable struct $sn <: AbstractTool
-            id::UUID = uuid4()
+            _id::UUID = uuid4()
             content::String = ""
             result::String = ""
         end
@@ -232,7 +231,6 @@ function _generate_passive_tool(sn, tool_name, description)
 
         ToolCallFormat.get_tool_schema(::Type{$sn}) = (name=$tool_name, description=$description, params=[])
         ToolCallFormat.create_tool(::Type{$sn}, call::ParsedCall) = $sn(content=call.content)
-        ToolCallFormat.result2string(tool::$sn)::String = tool.result
     end
 end
 
@@ -241,20 +239,28 @@ end
 #==============================================================================#
 
 function _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
-    base_fields = [(:id, UUID, :(uuid4())), (:result, String, :(""))]
+    base_fields = [(:_id, UUID, :(uuid4())), (:result, String, :(""))]
 
     # Schema params become struct fields
     user_fields = [(name, _schema_to_julia_type(type_str), default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : default)
                    for (name, type_str, _, _, default) in params]
 
     # Internal fields also become struct fields (but NOT in schema)
-    internal_struct_fields = [(name, type, default === nothing ? _default_value_expr_for_type(type) : default)
+    # Mark them with :internal tag so we know to escape the type
+    internal_struct_fields = [(name, type, default === nothing ? _default_value_expr_for_type(type) : default, :internal)
                               for (name, type, default) in internal_fields]
 
-    all_fields = vcat(base_fields, user_fields, internal_struct_fields)
-    struct_field_exprs = [:($name::$jl_type) for (name, jl_type, _) in all_fields]
-    kwarg_exprs = [Expr(:kw, name, def_expr) for (name, _, def_expr) in all_fields]
-    call_arg_exprs = [name for (name, _, _) in all_fields]
+    # Tag base and user fields as :builtin (types don't need escaping)
+    tagged_base = [(f..., :builtin) for f in base_fields]
+    tagged_user = [(f..., :builtin) for f in user_fields]
+
+    all_fields = vcat(tagged_base, tagged_user, internal_struct_fields)
+
+    # For internal fields, escape the type so it resolves in caller's module
+    struct_field_exprs = [tag == :internal ? :($name::$(esc(jl_type))) : :($name::$jl_type)
+                          for (name, jl_type, _, tag) in all_fields]
+    kwarg_exprs = [Expr(:kw, name, def_expr) for (name, _, def_expr, _) in all_fields]
+    call_arg_exprs = [name for (name, _, _, _) in all_fields]
 
     # Schema only includes user params, NOT internal fields
     schema_exprs = [:(ParamSchema(name=$(string(name)), type=$type_str, description=$desc, required=$req))
@@ -289,8 +295,6 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
     if execute_expr !== nothing
         push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = $(esc(execute_expr))(tool, ctx)))
     end
-
-    push!(result.args, :(ToolCallFormat.result2string(tool::$sn)::String = tool.result))
 
     result
 end
