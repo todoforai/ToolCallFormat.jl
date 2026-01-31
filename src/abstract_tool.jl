@@ -46,8 +46,32 @@ Optional:
 abstract type AbstractTool end
 
 
-# Required interface - defaults warn if not implemented
-create_tool(::Type{T}, call::ParsedCall) where T <: AbstractTool = (@warn "Unimplemented create_tool for $T"; nothing)
+# Default create_tool using schema - tools can override for custom parsing
+function create_tool(::Type{T}, call::ParsedCall) where T <: AbstractTool
+    schema = get_tool_schema(T)
+
+    # Passive tools (no schema or no params) - set content field if present
+    if schema === nothing || isempty(get(schema, :params, []))
+        return hasproperty(T, :content) ? T(content=call.content) : T()
+    end
+
+    # Active tools - extract params from call.kwargs
+    kwargs = Dict{Symbol,Any}()
+    for p in schema.params
+        name_str = p.name isa Symbol ? string(p.name) : p.name
+        name_sym = p.name isa Symbol ? p.name : Symbol(p.name)
+        pv = get(call.kwargs, name_str, nothing)
+
+        if p.type == "codeblock"
+            # Codeblock can come from kwargs or fall back to call.content
+            kwargs[name_sym] = pv !== nothing ? pv.value : call.content
+        elseif pv !== nothing
+            # Only set if present - let constructor handle defaults
+            kwargs[name_sym] = pv.value
+        end
+    end
+    T(; kwargs...)
+end
 # Execute with ctx - ctx is required, subtype AbstractContext for your runtime needs
 execute(tool::AbstractTool, ctx::AbstractContext) = @warn "Unimplemented execute for $(typeof(tool))"
 toolname(::Type{T}) where T <: AbstractTool = (@warn "Unimplemented toolname for $T"; "")

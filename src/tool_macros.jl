@@ -230,7 +230,6 @@ function _generate_passive_tool(sn, tool_name, description)
         ToolCallFormat.get_description(t::$sn, style::CallStyle=get_default_call_style()) = ToolCallFormat.get_description(typeof(t), style)
 
         ToolCallFormat.get_tool_schema(::Type{$sn}) = (name=$tool_name, description=$description, params=[])
-        ToolCallFormat.create_tool(::Type{$sn}, call::ParsedCall) = $sn(content=call.content)
     end
 end
 
@@ -290,8 +289,6 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
         end
     end
 
-    _add_create_tool!(result, sn, params)
-
     if execute_expr !== nothing
         push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = $(esc(execute_expr))(tool, ctx)))
     end
@@ -307,35 +304,6 @@ function _default_value_expr_for_type(type)
     type == :Float64 ? :(0.0) :
     (type isa Expr && type.head == :curly && type.args[1] == :Vector) ? :($(type)()) :
     :(nothing)
-end
-
-#==============================================================================#
-# create_tool generation
-#==============================================================================#
-
-function _add_create_tool!(result, sn, params)
-    kwarg_assignments = Expr[]
-
-    for (name, type_str, _, required, default) in params
-        name_str = string(name)
-        default_val = default === nothing ? _default_value_for_type(type_str) : default
-
-        value_expr = if type_str == "codeblock"
-            :(let v = get(call.kwargs, $name_str, nothing)
-                v !== nothing ? v.value : (isempty(call.content) ? $default_val : call.content)
-            end)
-        else
-            :(let pv = get(call.kwargs, $name_str, nothing)
-                pv === nothing ? $default_val : pv.value
-            end)
-        end
-
-        push!(kwarg_assignments, Expr(:kw, name, value_expr))
-    end
-
-    push!(result.args, :(function ToolCallFormat.create_tool(::Type{$sn}, call::ParsedCall)
-        $sn(; $(kwarg_assignments...))
-    end))
 end
 
 #==============================================================================#
@@ -495,9 +463,4 @@ end
 function _default_value_expr(T::Type)
     T == String ? :("") : T == Bool ? :(false) : T == Vector{Any} ? :(Any[]) :
     T == Dict{String,Any} ? :(Dict{String,Any}()) : :(nothing)
-end
-
-function _default_value_for_type(type_str::String)
-    type_str in ("string", "codeblock") ? "" : type_str == "boolean" ? false :
-    type_str == "array" ? Any[] : type_str == "object" ? Dict{String,Any}() : nothing
 end
