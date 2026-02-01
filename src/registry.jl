@@ -109,7 +109,7 @@ Provides: id, result storage, execute via handler.
 @kwdef mutable struct ToolDefInstance
     def::ToolDef
     call::ParsedCall
-    id::UUID = uuid4()
+    _id::UUID = uuid4()
     result::String = ""
 end
 
@@ -137,7 +137,7 @@ end
 toolname(inst::ToolDefInstance) = inst.def.schema.name
 
 """Get instance ID."""
-get_id(inst::ToolDefInstance) = inst.id
+get_id(inst::ToolDefInstance) = inst._id
 
 """Execute the tool handler and store result."""
 function execute!(inst::ToolDefInstance; kwargs...)
