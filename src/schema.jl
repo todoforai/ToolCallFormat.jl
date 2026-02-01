@@ -30,10 +30,8 @@ function generate_concise_format_docs()::String
     """
 ## Tool Call Format
 
-```
 tool_name(value)
 tool_name(param: value)
-```
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
@@ -43,7 +41,6 @@ tool_name(param: value)
 **Types:** `str`, `int`, `bool`, `null`, `list`, `obj`, `codeblock`
 
 **Examples:**
-```
 read_file("/file.txt")
 
 edit("/test.txt", old: "hello", new: "goodbye")
@@ -56,7 +53,6 @@ bash(
   ```
   timeout: 60000
 )
-```
 """
 end
 
@@ -64,33 +60,30 @@ function generate_typescript_format_docs()::String
     """
 ## Tool Call Format
 
-```
 tool_name(param: value, param2: value2)
-```
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
-- Tool call must end with `)` followed by **newline** or **code block**
+- Tool call must end with `)` followed by **newline**
+- Named args use `:`
 
 **Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object` ({k: v}), `codeblock` (``` fenced block ```)
 
 **Examples:**
-```
 read_file(path: "/file.txt", limit: 100)
 
 edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
 
-shell(lang: "sh") ```
+bash(```
 ls -la
-```
-```
+```)
 
-**With codeblock:** For multiline content, use a fenced code block:
-```
-tool_name(param: "value") ```
-multiline content here
-```
-```
+bash(
+  ```bash
+  npm install
+  ```
+  timeout: 60000
+)
 """
 end
 
@@ -98,9 +91,7 @@ function generate_python_format_docs()::String
     """
 ## Tool Call Format
 
-```
 tool_name(param=value, param2=value2)
-```
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
@@ -110,7 +101,6 @@ tool_name(param=value, param2=value2)
 **Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `dict` ({k: v}), `codeblock` (``` fenced block ```)
 
 **Examples:**
-```
 read_file("/file.txt", limit=100)
 
 edit(file_path="/test.txt", old_string="hello", new_string="goodbye")
@@ -123,7 +113,6 @@ echo "hello"
 bash(```bash
 npm install
 ```, timeout=60000)
-```
 """
 end
 
@@ -131,9 +120,7 @@ function generate_minimal_format_docs()::String
     """
 ## Tool Call Format
 
-```
 tool_name(param: value, param2: value2)
-```
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
@@ -143,7 +130,6 @@ tool_name(param: value, param2: value2)
 **Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object`, `codeblock`
 
 **Examples:**
-```
 read_file("/file.txt", limit: 100)
 
 edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
@@ -155,7 +141,6 @@ bash(
     ```
     timeout: 60000
 )
-```
 """
 end
 
@@ -184,9 +169,9 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
     write(io, "### `$(schema.name)`\n\n")
 
     if !isempty(schema.description)
-        write(io, "```\n/// $(schema.description)\n")
+        write(io, "\n/// $(schema.description)\n")
     else
-        write(io, "```\n")
+        write(io, "\n")
     end
 
     write(io, "$(schema.name)(")
@@ -200,7 +185,7 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
                 push!(param_strs, "$(param.name)$(opt): $(t)")
             end
             write(io, join(param_strs, ", "))
-            write(io, ")\n```\n\n")
+            write(io, ")\n\n")
         else
             write(io, "\n")
             for param in schema.params
@@ -209,10 +194,10 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
                 desc = isempty(param.description) ? "" : " # $(param.description)"
                 write(io, "  $(param.name)$(opt): $(t)$(desc)\n")
             end
-            write(io, ")\n```\n\n")
+            write(io, ")\n\n")
         end
     else
-        write(io, ")\n```\n\n")
+        write(io, ")\n\n")
     end
 
     return String(take!(io))
@@ -228,7 +213,7 @@ function generate_tool_definition_typescript(schema::ToolSchema)::String
     end
 
     if !isempty(schema.params)
-        write(io, "```typescript\n$(schema.name)(")
+        write(io, "$(schema.name)(")
 
         param_strs = String[]
         for param in schema.params
@@ -249,7 +234,7 @@ function generate_tool_definition_typescript(schema::ToolSchema)::String
             end
         end
 
-        write(io, ")\n```\n\n")
+        write(io, ")\n\n")
 
         write(io, "Parameters:\n")
         for param in schema.params
@@ -261,7 +246,7 @@ function generate_tool_definition_typescript(schema::ToolSchema)::String
             write(io, "\n")
         end
     else
-        write(io, "```typescript\n$(schema.name)()\n```\n\n")
+        write(io, "$(schema.name)()\n\n")
         write(io, "No parameters.\n")
     end
 
@@ -273,7 +258,7 @@ function generate_tool_definition_python(schema::ToolSchema)::String
 
     write(io, "### `$(schema.name)`\n\n")
 
-    write(io, "```python\ndef $(schema.name)(")
+    write(io, "def $(schema.name)(")
 
     if !isempty(schema.params)
         param_strs = String[]
@@ -312,7 +297,7 @@ function generate_tool_definition_python(schema::ToolSchema)::String
             write(io, "        $(param.name): $(param.description)\n")
         end
     end
-    write(io, "    \"\"\"\n```\n\n")
+    write(io, "    \"\"\"\n\n")
 
     return String(take!(io))
 end
@@ -326,7 +311,7 @@ function generate_tool_definition_minimal(schema::ToolSchema)::String
         write(io, "/// $(schema.description)\n")
     end
 
-    write(io, "```\n$(schema.name)(")
+    write(io, "$(schema.name)(")
 
     if !isempty(schema.params)
         if length(schema.params) <= 2
@@ -336,7 +321,7 @@ function generate_tool_definition_minimal(schema::ToolSchema)::String
                 push!(param_strs, "$(param.name)$(opt): $(param.type)")
             end
             write(io, join(param_strs, ", "))
-            write(io, ")\n```\n\n")
+            write(io, ")\n\n")
         else
             write(io, "\n")
             for param in schema.params
@@ -344,10 +329,10 @@ function generate_tool_definition_minimal(schema::ToolSchema)::String
                 desc = isempty(param.description) ? "" : "  # $(param.description)"
                 write(io, "    $(param.name)$(opt): $(param.type)$(desc)\n")
             end
-            write(io, ")\n```\n\n")
+            write(io, ")\n\n")
         end
     else
-        write(io, ")\n```\n\n")
+        write(io, ")\n\n")
     end
 
     return String(take!(io))
