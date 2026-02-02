@@ -166,12 +166,8 @@ end
 function generate_tool_definition_concise(schema::ToolSchema)::String
     io = IOBuffer()
 
-    write(io, "### `$(schema.name)`\n\n")
-
     if !isempty(schema.description)
-        write(io, "\n/// $(schema.description)\n")
-    else
-        write(io, "\n")
+        write(io, "/// $(schema.description)\n")
     end
 
     write(io, "$(schema.name)(")
@@ -185,7 +181,6 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
                 push!(param_strs, "$(param.name)$(opt): $(t)")
             end
             write(io, join(param_strs, ", "))
-            write(io, ")\n\n")
         else
             write(io, "\n")
             for param in schema.params
@@ -194,118 +189,82 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
                 desc = isempty(param.description) ? "" : " # $(param.description)"
                 write(io, "  $(param.name)$(opt): $(t)$(desc)\n")
             end
-            write(io, ")\n\n")
         end
-    else
-        write(io, ")\n\n")
     end
 
+    write(io, ")\n")
     return String(take!(io))
 end
 
 function generate_tool_definition_typescript(schema::ToolSchema)::String
     io = IOBuffer()
 
-    write(io, "### `$(schema.name)`\n\n")
-
     if !isempty(schema.description)
-        write(io, "$(schema.description)\n\n")
+        write(io, "// $(schema.description)\n")
     end
 
+    write(io, "$(schema.name)(")
+
     if !isempty(schema.params)
-        write(io, "$(schema.name)(")
-
-        param_strs = String[]
-        for param in schema.params
-            opt = param.required ? "" : "?"
-            push!(param_strs, "$(param.name)$(opt): $(param.type)")
-        end
-
-        if length(param_strs) <= 2
+        if length(schema.params) <= 2
+            param_strs = String[]
+            for param in schema.params
+                opt = param.required ? "" : "?"
+                push!(param_strs, "$(param.name)$(opt): $(param.type)")
+            end
             write(io, join(param_strs, ", "))
         else
             write(io, "\n")
-            for (i, ps) in enumerate(param_strs)
-                write(io, "    $ps")
-                if i < length(param_strs)
-                    write(io, ",")
-                end
-                write(io, "\n")
+            for param in schema.params
+                opt = param.required ? "" : "?"
+                desc = isempty(param.description) ? "" : " // $(param.description)"
+                write(io, "  $(param.name)$(opt): $(param.type),$(desc)\n")
             end
         end
-
-        write(io, ")\n\n")
-
-        write(io, "Parameters:\n")
-        for param in schema.params
-            opt_marker = param.required ? "" : " *(optional)*"
-            write(io, "- `$(param.name)` ($(param.type))$(opt_marker)")
-            if !isempty(param.description)
-                write(io, ": $(param.description)")
-            end
-            write(io, "\n")
-        end
-    else
-        write(io, "$(schema.name)()\n\n")
-        write(io, "No parameters.\n")
     end
 
+    write(io, ")\n")
     return String(take!(io))
 end
 
 function generate_tool_definition_python(schema::ToolSchema)::String
     io = IOBuffer()
 
-    write(io, "### `$(schema.name)`\n\n")
+    if !isempty(schema.description)
+        write(io, "# $(schema.description)\n")
+    end
 
-    write(io, "def $(schema.name)(")
+    write(io, "$(schema.name)(")
 
     if !isempty(schema.params)
-        param_strs = String[]
-        for param in schema.params
-            type_hint = python_type(param.type)
-            if param.required
-                push!(param_strs, "$(param.name): $(type_hint)")
-            else
-                push!(param_strs, "$(param.name): $(type_hint) | None = None")
+        if length(schema.params) <= 2
+            param_strs = String[]
+            for param in schema.params
+                type_hint = python_type(param.type)
+                if param.required
+                    push!(param_strs, "$(param.name): $(type_hint)")
+                else
+                    push!(param_strs, "$(param.name): $(type_hint) = None")
+                end
             end
-        end
-
-        if length(param_strs) <= 2
             write(io, join(param_strs, ", "))
         else
             write(io, "\n")
-            for (i, ps) in enumerate(param_strs)
-                write(io, "    $ps")
-                if i < length(param_strs)
-                    write(io, ",")
-                end
-                write(io, "\n")
+            for param in schema.params
+                type_hint = python_type(param.type)
+                opt = param.required ? "" : " = None"
+                desc = isempty(param.description) ? "" : "  # $(param.description)"
+                write(io, "  $(param.name): $(type_hint)$(opt),$(desc)\n")
             end
         end
     end
 
-    write(io, "):\n")
-
-    write(io, "    \"\"\"")
-    if !isempty(schema.description)
-        write(io, "\n    $(schema.description)\n")
-    end
-    if !isempty(schema.params)
-        write(io, "\n    Args:\n")
-        for param in schema.params
-            write(io, "        $(param.name): $(param.description)\n")
-        end
-    end
-    write(io, "    \"\"\"\n\n")
-
+    write(io, ")\n")
     return String(take!(io))
 end
 
 function generate_tool_definition_minimal(schema::ToolSchema)::String
     io = IOBuffer()
-
-    write(io, "### `$(schema.name)`\n\n")
 
     if !isempty(schema.description)
         write(io, "/// $(schema.description)\n")
@@ -321,20 +280,17 @@ function generate_tool_definition_minimal(schema::ToolSchema)::String
                 push!(param_strs, "$(param.name)$(opt): $(param.type)")
             end
             write(io, join(param_strs, ", "))
-            write(io, ")\n\n")
         else
             write(io, "\n")
             for param in schema.params
                 opt = param.required ? "" : "?"
-                desc = isempty(param.description) ? "" : "  # $(param.description)"
-                write(io, "    $(param.name)$(opt): $(param.type)$(desc)\n")
+                desc = isempty(param.description) ? "" : " # $(param.description)"
+                write(io, "  $(param.name)$(opt): $(param.type)$(desc)\n")
             end
-            write(io, ")\n\n")
         end
-    else
-        write(io, ")\n\n")
     end
 
+    write(io, ")\n")
     return String(take!(io))
 end
 
@@ -343,7 +299,7 @@ end
 # ═══════════════════════════════════════════════════════════════════════════════
 
 """Generate a tool definition section for the system prompt."""
-function generate_tool_definitions(schemas::Vector{ToolSchema}; header::String="## Available Tools\n\n", style::CallStyle=get_default_call_style())::String
+function generate_tool_definitions(schemas::Vector{ToolSchema}; header::String="## Available Tools\n", style::CallStyle=get_default_call_style())::String
     io = IOBuffer()
     write(io, header)
 
