@@ -188,8 +188,10 @@ function handle_ident_state!(sp::StreamProcessor, c::Char)
             write(sp.tool_buf, name)
             write(sp.tool_buf, '(')
         else
-            # Not a tool - emit as regular text
-            @warn "Tool not in known_tools, emitting as text" tool_name=name known_tools=sp.known_tools
+            # Not a tool - emit error message so AI knows the tool isn't available
+            @warn "Tool not in known_tools" tool_name=name
+            error_msg = "\n[Tool Error: '$name' is not available in this session. Check agent settings or permissions.]\n"
+            sp.emit_text(error_msg)
             emit_as_text!(sp, name, c)
         end
     else
