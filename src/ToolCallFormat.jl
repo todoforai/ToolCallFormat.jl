@@ -51,7 +51,7 @@ include("abstract_tool.jl")
 # Tool definition macros (@deftool)
 include("tool_macros.jl")
 
-# Registry for dynamic tool lookup (optional, for handler-based tools)
+# Registry for @deftool type lookup
 include("registry.jl")
 
 end # module ToolCallFormat
