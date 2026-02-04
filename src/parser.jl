@@ -268,7 +268,89 @@ function parse_object!(ps::ParserState)::Union{ParsedValue, Nothing}
     return nothing
 end
 
-"""Parse any value (string, number, boolean, null, array, or object)."""
+"""Dedent a multi-line string by removing common leading whitespace."""
+function dedent(s::AbstractString)::String
+    lines = split(s, '\n')
+
+    # Find minimum indentation (ignoring empty lines)
+    min_indent = typemax(Int)
+    for line in lines
+        isempty(line) && continue
+        indent = length(line) - length(lstrip(line))
+        if indent < min_indent
+            min_indent = indent
+        end
+    end
+
+    # If no indentation found or only empty lines, return as-is
+    (min_indent == 0 || min_indent == typemax(Int)) && return String(s)
+
+    # Remove the common indentation from each line
+    result = IOBuffer()
+    for (i, line) in enumerate(lines)
+        i > 1 && write(result, '\n')
+        if length(line) >= min_indent
+            write(result, line[nextind(line, 0, min_indent+1):end])
+        else
+            write(result, line)
+        end
+    end
+
+    return String(take!(result))
+end
+
+"""Parse an inline codeblock value: ```content``` or ```lang\\ncontent```"""
+function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
+    skip_whitespace!(ps)
+
+    # Must start with ```
+    !matches_keyword(ps, "```") && return nothing
+
+    start = ps.pos
+    advance_n!(ps, 3)  # Skip opening ```
+
+    # Skip optional language specifier (everything until newline or first ```)
+    lang_end = ps.pos
+    while !is_eof(ps) && current_char(ps) != '\n' && !matches_keyword(ps, "```")
+        advance!(ps)
+        lang_end = ps.pos
+    end
+
+    # If we hit closing ``` immediately (inline format like ```content```)
+    if matches_keyword(ps, "```")
+        # Content is between opening ``` and closing ```
+        content = ps.text[start+3:prevind(ps.text, ps.pos)]
+        advance_n!(ps, 3)  # Skip closing ```
+        raw = ps.text[start:prevind(ps.text, ps.pos)]
+        return ParsedValue(value=strip(content), raw=raw)
+    end
+
+    # Multi-line format: skip the newline after language specifier
+    if current_char(ps) == '\n'
+        advance!(ps)
+    end
+
+    # Find closing ```
+    content_start = ps.pos
+    while !is_eof(ps)
+        if current_char(ps) == '`' && matches_keyword(ps, "```")
+            # Content is everything before the closing ```
+            content_end = prevind(ps.text, ps.pos)
+            content = content_start <= content_end ? ps.text[content_start:content_end] : ""
+            advance_n!(ps, 3)  # Skip closing ```
+            raw = ps.text[start:prevind(ps.text, ps.pos)]
+            # Strip trailing newline and dedent
+            content = rstrip(content, '\n')
+            content = dedent(content)
+            return ParsedValue(value=content, raw=raw)
+        end
+        advance!(ps)
+    end
+
+    return nothing  # Unterminated codeblock
+end
+
+"""Parse any value (string, number, boolean, null, array, object, or codeblock)."""
 function parse_value!(ps::ParserState)::Union{ParsedValue, Nothing}
     skip_whitespace!(ps)
     c = current_char(ps)
@@ -277,6 +359,7 @@ function parse_value!(ps::ParserState)::Union{ParsedValue, Nothing}
     (isdigit(c) || (c == '-' && isdigit(peek_char(ps)))) && return parse_number!(ps)
     c == '[' && return parse_array!(ps)
     c == '{' && return parse_object!(ps)
+    c == '`' && return parse_codeblock!(ps)
 
     if c == 't' || c == 'f'
         return parse_boolean!(ps)
@@ -291,24 +374,51 @@ end
 # Tool Call Parsing
 # ═══════════════════════════════════════════════════════════════════════════════
 
-"""Parse function parameters: key: value, key2: value2, ..."""
+"""Parse function parameters: supports both positional and named arguments.
+Positional: tool("value", 123)
+Named: tool(key: "value", count: 123)
+Mixed: tool("positional", key: "named")
+"""
 function parse_params!(ps::ParserState)::Union{Dict{String, ParsedValue}, Nothing}
     kwargs = Dict{String, ParsedValue}()
+    positional_index = 0
 
     skip_whitespace!(ps)
     current_char(ps) == ')' && return kwargs
 
     while !is_eof(ps)
-        name = parse_identifier!(ps)
-        name === nothing && return nothing
-
         skip_whitespace!(ps)
-        current_char(ps) != ':' && return nothing
-        advance!(ps)
 
-        val = parse_value!(ps)
-        val === nothing && return nothing
-        kwargs[name] = val
+        # Save position to potentially backtrack
+        saved_pos = ps.pos
+
+        # Try to parse as named argument (identifier: value)
+        name = parse_identifier!(ps)
+
+        if name !== nothing
+            skip_whitespace!(ps)
+            if current_char(ps) == ':'
+                # Named argument: name: value
+                advance!(ps)
+                val = parse_value!(ps)
+                val === nothing && return nothing
+                kwargs[name] = val
+            else
+                # No colon - backtrack and try as positional value
+                # (the identifier might be true/false/null or just not a named arg)
+                ps.pos = saved_pos
+                val = parse_value!(ps)
+                val === nothing && return nothing
+                kwargs["_$positional_index"] = val
+                positional_index += 1
+            end
+        else
+            # Not an identifier - must be a positional value
+            val = parse_value!(ps)
+            val === nothing && return nothing
+            kwargs["_$positional_index"] = val
+            positional_index += 1
+        end
 
         skip_whitespace!(ps)
         c = current_char(ps)
@@ -317,8 +427,17 @@ function parse_params!(ps::ParserState)::Union{Dict{String, ParsedValue}, Nothin
             return kwargs
         elseif c == ','
             advance!(ps)
+            # Continue to next parameter
         else
-            return nothing
+            # Allow comma-less separation (newline or space separated params)
+            # If we see something that could start a new param, continue
+            # Otherwise fail
+            if is_ident_start(c) || c == '"' || c == '\'' || c == '`' ||
+               c == '[' || c == '{' || isdigit(c) || c == '-'
+                # Looks like another parameter, continue without comma
+            else
+                return nothing
+            end
         end
     end
 

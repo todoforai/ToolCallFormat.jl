@@ -60,6 +60,49 @@ const test_ctx = TestContext()
         call5 = parse_tool_call("read_file(path: \"/test\") some text")
         @test call5 === nothing
 
+        # Inline codeblock as named parameter (single line)
+        call6 = parse_tool_call("create(path: \"/tmp/hello.txt\", content: ```Hello, world!```)\n")
+        @test call6 !== nothing
+        @test call6.name == "create"
+        @test call6.kwargs["path"].value == "/tmp/hello.txt"
+        @test call6.kwargs["content"].value == "Hello, world!"
+
+        # Inline codeblock with language specifier (multi-line)
+        call7 = parse_tool_call("create(path: \"/tmp/test.py\", content: ```python\nprint('hello')\n```)\n")
+        @test call7 !== nothing
+        @test call7.name == "create"
+        @test call7.kwargs["content"].value == "print('hello')"
+
+        # Multi-line codeblock content
+        call8 = parse_tool_call("bash(script: ```\necho hello\necho world\n```)\n")
+        @test call8 !== nothing
+        @test call8.kwargs["script"].value == "echo hello\necho world"
+
+        # Positional arguments - single string
+        call9 = parse_tool_call("read_file(\"/test.txt\")\n")
+        @test call9 !== nothing
+        @test call9.name == "read_file"
+        @test call9.kwargs["_0"].value == "/test.txt"
+
+        # Positional arguments - multiple values
+        call10 = parse_tool_call("config(42, true, \"hello\")\n")
+        @test call10 !== nothing
+        @test call10.kwargs["_0"].value == 42
+        @test call10.kwargs["_1"].value == true
+        @test call10.kwargs["_2"].value == "hello"
+
+        # Mixed positional and named arguments
+        call11 = parse_tool_call("edit(\"/file.txt\", old: \"hello\", new: \"world\")\n")
+        @test call11 !== nothing
+        @test call11.kwargs["_0"].value == "/file.txt"
+        @test call11.kwargs["old"].value == "hello"
+        @test call11.kwargs["new"].value == "world"
+
+        # Positional codeblock
+        call12 = parse_tool_call("bash(```echo hello```)\n")
+        @test call12 !== nothing
+        @test call12.kwargs["_0"].value == "echo hello"
+
         println("✓ Parser tests passed")
     end
 

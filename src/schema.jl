@@ -36,20 +36,26 @@ tool_name(param: value)
 **Rules:**
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
-- Positional args first, then named args with `:`
+- Positional args (no name needed) come first, then named args with `:`
+- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
 
 **Types:** `str`, `int`, `bool`, `null`, `list`, `obj`, `codeblock`
 
 **Examples:**
 read_file("/file.txt")
 
+read_file("/file.txt", limit: 100)
+
+create("/tmp/hello.txt", content: ```Hello, world!```)
+
 edit("/test.txt", old: "hello", new: "goodbye")
 
-bash(```echo "hello"```)
+bash(```ls -la```)
 
 bash(
   ```bash
-  npm install
+  ls -la
+  echo "hello"
   ```
   timeout: 60000
 )
@@ -60,27 +66,32 @@ function generate_typescript_format_docs()::String
     """
 ## Tool Call Format
 
+tool_name(value)
 tool_name(param: value, param2: value2)
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
-- Named args use `:`
+- Positional args (no name needed) come first, then named args with `:`
+- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
 
 **Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object` ({k: v}), `codeblock` (``` fenced block ```)
 
 **Examples:**
+read_file("/file.txt")
+
 read_file(path: "/file.txt", limit: 100)
+
+create("/tmp/hello.txt", content: ```Hello, world!```)
 
 edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
 
-bash(```
-ls -la
-```)
+bash(```ls -la```)
 
 bash(
   ```bash
-  npm install
+  ls -la
+  echo "hello"
   ```
   timeout: 60000
 )
@@ -91,27 +102,31 @@ function generate_python_format_docs()::String
     """
 ## Tool Call Format
 
+tool_name(value)
 tool_name(param=value, param2=value2)
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
-- Use `=` for named arguments, positional arguments don't need names
+- Positional args (no name needed) come first, then named args with `=`
+- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
 
 **Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `dict` ({k: v}), `codeblock` (``` fenced block ```)
 
 **Examples:**
+read_file("/file.txt")
+
 read_file("/file.txt", limit=100)
+
+create("/tmp/hello.txt", content=```Hello, world!```)
 
 edit(file_path="/test.txt", old_string="hello", new_string="goodbye")
 
-bash(```
-ls -la
-echo "hello"
-```)
+bash(```ls -la```)
 
 bash(```bash
-npm install
+ls -la
+echo "hello"
 ```, timeout=60000)
 """
 end
@@ -120,19 +135,27 @@ function generate_minimal_format_docs()::String
     """
 ## Tool Call Format
 
+tool_name(value)
 tool_name(param: value, param2: value2)
 
 **Rules:**
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
-- Use `:` for named arguments, positional arguments are allowed
+- Positional args (no name needed) come first, then named args with `:`
+- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
 
 **Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object`, `codeblock`
 
 **Examples:**
+read_file("/file.txt")
+
 read_file("/file.txt", limit: 100)
 
+create("/tmp/hello.txt", content: ```Hello, world!```)
+
 edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
+
+bash(```ls -la```)
 
 bash(
     ```bash
