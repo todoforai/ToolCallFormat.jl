@@ -118,7 +118,7 @@ end
 
 _sp_is_ident_start(c::Char) = isletter(c) || c == '_'
 _sp_is_ident_char(c::Char) = isletter(c) || isdigit(c) || c == '_'
-_sp_is_whitespace(c::Char) = c == ' ' || c == '\t'
+_sp_is_whitespace(c::Char) = c == ' ' || c == '\t' || c == '\r'
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main Processing
