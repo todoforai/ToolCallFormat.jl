@@ -157,7 +157,7 @@ macro deftool(args...)
     is_passive = isempty(params_for_gen) && isempty(internal_for_gen)
 
     if is_passive
-        _generate_passive_tool(sn, func_name_str, description)
+        _generate_passive_tool(sn, func_name_str, description, execute_lambda)
     else
         _generate_active_tool(sn, func_name_str, description, params_for_gen, execute_lambda, internal_for_gen)
     end
@@ -209,8 +209,8 @@ end
 # Passive tool generation (no params)
 #==============================================================================#
 
-function _generate_passive_tool(sn, tool_name, description)
-    quote
+function _generate_passive_tool(sn, tool_name, description, execute_expr=nothing)
+    result = quote
         @kwdef mutable struct $sn <: AbstractTool
             _id::UUID = uuid4()
             content::String = ""
@@ -227,6 +227,12 @@ function _generate_passive_tool(sn, tool_name, description)
 
         ToolCallFormat.get_tool_schema(::Type{$sn}) = (name=$tool_name, description=$description, params=[])
     end
+
+    if execute_expr !== nothing
+        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = $(esc(execute_expr))(tool, ctx)))
+    end
+
+    result
 end
 
 #==============================================================================#
@@ -237,12 +243,14 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
     base_fields = [(:_id, UUID, :(uuid4())), (:result, String, :(""))]
 
     # Schema params become struct fields
-    user_fields = [(name, _schema_to_julia_type(type_str), default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : default)
+    # User-provided defaults must be esc'd so they resolve in the caller's module, not ToolCallFormat
+    user_fields = [(name, _schema_to_julia_type(type_str), default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : esc(default))
                    for (name, type_str, _, _, default) in params]
 
     # Internal fields also become struct fields (but NOT in schema)
     # Mark them with :internal tag so we know to escape the type
-    internal_struct_fields = [(name, type, default === nothing ? _default_value_expr_for_type(type) : default, :internal)
+    # User-provided defaults must be esc'd so they resolve in the caller's module
+    internal_struct_fields = [(name, type, default === nothing ? _default_value_expr_for_type(type) : esc(default), :internal)
                               for (name, type, default) in internal_fields]
 
     # Tag base and user fields as :builtin (types don't need escaping)
