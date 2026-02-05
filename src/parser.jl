@@ -299,7 +299,7 @@ function dedent(s::AbstractString)::String
     return String(take!(result))
 end
 
-"""Parse an inline codeblock value: ```content``` or ```lang\\ncontent```"""
+"""Parse an inline codeblock value: ```content```"""
 function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
     skip_whitespace!(ps)
 
@@ -309,38 +309,18 @@ function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
     start = ps.pos
     advance_n!(ps, 3)  # Skip opening ```
 
-    # Skip optional language specifier (everything until newline or first ```)
-    lang_end = ps.pos
-    while !is_eof(ps) && current_char(ps) != '\n' && !matches_keyword(ps, "```")
-        advance!(ps)
-        lang_end = ps.pos
-    end
-
-    # If we hit closing ``` immediately (inline format like ```content```)
-    if matches_keyword(ps, "```")
-        # Content is between opening ``` and closing ```
-        content = ps.text[start+3:prevind(ps.text, ps.pos)]
-        advance_n!(ps, 3)  # Skip closing ```
-        raw = ps.text[start:prevind(ps.text, ps.pos)]
-        return ParsedValue(value=strip(content), raw=raw)
-    end
-
-    # Multi-line format: skip the newline after language specifier
-    if current_char(ps) == '\n'
-        advance!(ps)
-    end
+    # Content starts immediately after opening ```
+    content_start = ps.pos
 
     # Find closing ```
-    content_start = ps.pos
     while !is_eof(ps)
         if current_char(ps) == '`' && matches_keyword(ps, "```")
-            # Content is everything before the closing ```
             content_end = prevind(ps.text, ps.pos)
             content = content_start <= content_end ? ps.text[content_start:content_end] : ""
             advance_n!(ps, 3)  # Skip closing ```
             raw = ps.text[start:prevind(ps.text, ps.pos)]
-            # Strip trailing newline and dedent
-            content = rstrip(content, '\n')
+            # Strip surrounding newlines and dedent
+            content = strip(content, '\n')
             content = dedent(content)
             return ParsedValue(value=content, raw=raw)
         end
@@ -451,21 +431,16 @@ function parse_content_block!(ps::ParserState)::String
     if matches_keyword(ps, "```")
         advance_n!(ps, 3)
 
-        # Skip optional language specifier
-        while !is_eof(ps) && current_char(ps) != '\n'
-            advance!(ps)
-        end
-        if current_char(ps) == '\n'
-            advance!(ps)
-        end
+        # Content starts immediately after opening ```
+        content_start = ps.pos
 
         # Find closing ```
-        content_start = ps.pos
         while !is_eof(ps)
             if current_char(ps) == '`' && matches_keyword(ps, "```")
                 content_end = prevind(ps.text, ps.pos)
                 advance_n!(ps, 3)
-                return content_start <= content_end ? ps.text[content_start:content_end] : ""
+                content = content_start <= content_end ? ps.text[content_start:content_end] : ""
+                return strip(content, '\n')
             end
             advance!(ps)
         end
@@ -519,7 +494,7 @@ Parse a complete tool call from text.
 # Supported Formats
 - Simple: `read_file(path: "/file.txt")`
 - Multi-line: `edit(\\n  file_path: "/test.txt"\\n)`
-- With content: `shell(lang: "sh") ```\\nls -la\\n```
+- With content: `shell(cmd: "ls") ```\\nls -la\\n```
 """
 function parse_tool_call(text::AbstractString; require_line_end::Bool=true)::Union{ParsedCall, Nothing}
     ps = ParserState(text)

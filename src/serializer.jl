@@ -89,17 +89,17 @@ end
 """
 Serialize a tool call with content block.
 ```
-shell(lang: "sh") ```
+shell(cmd: "sh") ```
 ls -la
 ```
 ```
 """
-function serialize_tool_call_with_content(name::String, kwargs::AbstractDict, content::String, lang::String=""; style::CallStyle=CONCISE)::String
+function serialize_tool_call_with_content(name::String, kwargs::AbstractDict, content::String; style::CallStyle=CONCISE)::String
     call = serialize_tool_call(name, kwargs; style)
     if isempty(content)
         return call
     end
-    return "$(call) ```$(lang)\n$(content)```"
+    return "$(call) ```\n$(content)```"
 end
 
 """Serialize a ParsedCall back to string format."""

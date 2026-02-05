@@ -76,7 +76,6 @@ mutable struct StreamProcessor
 
     # Content block tracking
     backtick_count::Int          # Count consecutive backticks
-    in_content_body::Bool        # True after opening ``` + newline
 
     # Tool detection
     known_tools::Set{Symbol}
@@ -104,7 +103,6 @@ function StreamProcessor(;
         IOBuffer(),
         Char[],
         0,     # backtick_count
-        false, # in_content_body
         known_tools,
         emit_text,
         emit_tool,
@@ -234,7 +232,7 @@ function handle_after_paren_state!(sp::StreamProcessor, c::Char)
         sp.backtick_count += 1
         if sp.backtick_count == 3
             sp.state = IN_CONTENT_BLOCK
-            sp.in_content_body = false
+            sp.backtick_count = 0  # Reset so opening ``` doesn't trigger closing detection
         end
     elseif _sp_is_whitespace(c)
         # Whitespace before potential content block - DON'T add to tool_buf yet
@@ -251,21 +249,14 @@ end
 function handle_content_state!(sp::StreamProcessor, c::Char)
     write(sp.tool_buf, c)
 
-    if !sp.in_content_body
-        if c == '\n'
-            sp.in_content_body = true
-            sp.backtick_count = 0
-        end
+    if c == '`'
+        sp.backtick_count += 1
     else
-        if c == '`'
-            sp.backtick_count += 1
-        else
-            if sp.backtick_count >= 3
-                complete_tool_call!(sp)
-                return
-            end
-            sp.backtick_count = 0
+        if sp.backtick_count >= 3
+            complete_tool_call!(sp)
+            return
         end
+        sp.backtick_count = 0
     end
 end
 
@@ -394,7 +385,6 @@ function reset!(sp::StreamProcessor)
     sp.escape_next = false
     sp.at_line_start = true
     sp.backtick_count = 0
-    sp.in_content_body = false
     take!(sp.text_buf)
     take!(sp.ident_buf)
     take!(sp.tool_buf)

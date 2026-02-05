@@ -67,11 +67,16 @@ const test_ctx = TestContext()
         @test call6.kwargs["path"].value == "/tmp/hello.txt"
         @test call6.kwargs["content"].value == "Hello, world!"
 
-        # Inline codeblock with language specifier (multi-line)
+        # Inline codeblock multi-line (no language specifier stripping)
         call7 = parse_tool_call("create(path: \"/tmp/test.py\", content: ```python\nprint('hello')\n```)\n")
         @test call7 !== nothing
         @test call7.name == "create"
-        @test call7.kwargs["content"].value == "print('hello')"
+        @test call7.kwargs["content"].value == "python\nprint('hello')"
+
+        # Content on first line, closing backticks on next line (previously broken)
+        call7b = parse_tool_call("create(path: \"/tmp/hello.txt\", content: ```Hello, world!\n```)\n")
+        @test call7b !== nothing
+        @test call7b.kwargs["content"].value == "Hello, world!"
 
         # Multi-line codeblock content
         call8 = parse_tool_call("bash(script: ```\necho hello\necho world\n```)\n")

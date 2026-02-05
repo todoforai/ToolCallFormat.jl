@@ -5,16 +5,12 @@ export @deftool, CodeBlock
 using UUIDs: UUID, uuid4
 
 #==============================================================================#
-# CodeBlock type
+# CodeBlock marker
 #==============================================================================#
 
-"""Marker type for codeblock parameters (tells LLM to use code formatting)."""
-struct CodeBlock
-    content::String
-end
-CodeBlock() = CodeBlock("")
-Base.convert(::Type{CodeBlock}, s::String) = CodeBlock(s)
-Base.string(cb::CodeBlock) = cb.content
+"""Marker type for codeblock parameters — tells the LLM to use triple-backtick formatting.
+Only used as a type annotation in @deftool; the generated struct field is String."""
+struct CodeBlock end
 
 #==============================================================================#
 # Valid schema types
@@ -93,7 +89,7 @@ end
     "New content for the file" => content::CodeBlock;
     ctx::Context
 )
-    # postcontent is set by preprocess, not by AI
+    # postcontent is set by preprocess hook, not by AI
     apply_changes(file_path, postcontent, ctx)
 end
 ```

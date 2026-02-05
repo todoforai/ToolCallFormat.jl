@@ -53,7 +53,7 @@ edit("/test.txt", old: "hello", new: "goodbye")
 bash(```ls -la```)
 
 bash(
-  ```bash
+  ```
   ls -la
   echo "hello"
   ```
@@ -89,7 +89,7 @@ edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
 bash(```ls -la```)
 
 bash(
-  ```bash
+  ```
   ls -la
   echo "hello"
   ```
@@ -124,7 +124,7 @@ edit(file_path="/test.txt", old_string="hello", new_string="goodbye")
 
 bash(```ls -la```)
 
-bash(```bash
+bash(```
 ls -la
 echo "hello"
 ```, timeout=60000)
@@ -158,7 +158,7 @@ edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
 bash(```ls -la```)
 
 bash(
-    ```bash
+    ```
     ls -la
     echo "hello"
     ```
