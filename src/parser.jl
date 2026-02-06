@@ -299,32 +299,56 @@ function dedent(s::AbstractString)::String
     return String(take!(result))
 end
 
-"""Parse an inline codeblock value: ```content```"""
+"""Count consecutive backticks at current position without advancing."""
+function count_backticks_at(ps::ParserState)::Int
+    count = 0
+    pos = ps.pos
+    while pos <= ps.endpos && ps.text[pos] == '`'
+        count += 1
+        pos = nextind(ps.text, pos)
+    end
+    return count
+end
+
+"""Parse an inline codeblock value with variable-length fences: N backticks open, exactly N close (N >= 3)."""
 function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
     skip_whitespace!(ps)
 
-    # Must start with ```
-    !matches_keyword(ps, "```") && return nothing
+    # Must start with at least 3 backticks
+    opening_count = count_backticks_at(ps)
+    opening_count < 3 && return nothing
 
     start = ps.pos
-    advance_n!(ps, 3)  # Skip opening ```
+    advance_n!(ps, opening_count)  # Skip opening fence
 
-    # Content starts immediately after opening ```
+    # Content starts immediately after opening fence
     content_start = ps.pos
 
-    # Find closing ```
+    # Find closing fence: exactly opening_count backticks followed by non-backtick (or EOF)
     while !is_eof(ps)
-        if current_char(ps) == '`' && matches_keyword(ps, "```")
-            content_end = prevind(ps.text, ps.pos)
-            content = content_start <= content_end ? ps.text[content_start:content_end] : ""
-            advance_n!(ps, 3)  # Skip closing ```
-            raw = ps.text[start:prevind(ps.text, ps.pos)]
-            # Strip surrounding newlines and dedent
-            content = strip(content, '\n')
-            content = dedent(content)
-            return ParsedValue(value=content, raw=raw)
+        if current_char(ps) == '`'
+            run_start = ps.pos
+            run_count = count_backticks_at(ps)
+            if run_count == opening_count
+                # Check that the run is followed by non-backtick (or EOF)
+                content_end = prevind(ps.text, run_start)
+                advance_n!(ps, run_count)
+                if is_eof(ps) || current_char(ps) != '`'
+                    content = content_start <= content_end ? ps.text[content_start:content_end] : ""
+                    raw = ps.text[start:prevind(ps.text, ps.pos)]
+                    # Strip surrounding newlines and dedent
+                    content = strip(content, '\n')
+                    content = dedent(content)
+                    return ParsedValue(value=content, raw=raw)
+                end
+                # More backticks follow — this wasn't the closing fence, continue scanning
+            else
+                # Skip the entire run of backticks
+                advance_n!(ps, run_count)
+            end
+        else
+            advance!(ps)
         end
-        advance!(ps)
     end
 
     return nothing  # Unterminated codeblock
@@ -424,25 +448,35 @@ function parse_params!(ps::ParserState)::Union{Dict{String, ParsedValue}, Nothin
     return nothing
 end
 
-"""Parse content block after closing paren: ``` content ```"""
+"""Parse content block after closing paren with variable-length fences."""
 function parse_content_block!(ps::ParserState)::String
     skip_whitespace!(ps)
 
-    if matches_keyword(ps, "```")
-        advance_n!(ps, 3)
+    opening_count = count_backticks_at(ps)
+    if opening_count >= 3
+        advance_n!(ps, opening_count)
 
-        # Content starts immediately after opening ```
+        # Content starts immediately after opening fence
         content_start = ps.pos
 
-        # Find closing ```
+        # Find closing fence: exactly opening_count backticks followed by non-backtick (or EOF)
         while !is_eof(ps)
-            if current_char(ps) == '`' && matches_keyword(ps, "```")
-                content_end = prevind(ps.text, ps.pos)
-                advance_n!(ps, 3)
-                content = content_start <= content_end ? ps.text[content_start:content_end] : ""
-                return strip(content, '\n')
+            if current_char(ps) == '`'
+                run_start = ps.pos
+                run_count = count_backticks_at(ps)
+                if run_count == opening_count
+                    content_end = prevind(ps.text, run_start)
+                    advance_n!(ps, run_count)
+                    if is_eof(ps) || current_char(ps) != '`'
+                        content = content_start <= content_end ? ps.text[content_start:content_end] : ""
+                        return strip(content, '\n')
+                    end
+                else
+                    advance_n!(ps, run_count)
+                end
+            else
+                advance!(ps)
             end
-            advance!(ps)
         end
     end
 
@@ -458,7 +492,7 @@ end
 
 """
 Check if we have valid line ending after closing paren.
-Valid endings: newline, end of string, or content block (```)
+Valid endings: newline, end of string, or content block (N >= 3 backticks)
 """
 function has_valid_line_ending(ps::ParserState)::Bool
     is_eof(ps) && return true
@@ -471,12 +505,17 @@ function has_valid_line_ending(ps::ParserState)::Bool
         while temp_pos <= ps.endpos && ps.text[temp_pos] in (' ', '\t')
             temp_pos = nextind(ps.text, temp_pos)
         end
-        if temp_pos + 2 <= ps.endpos && ps.text[temp_pos:temp_pos+2] == "```"
-            return true
+        # Count backticks at temp_pos
+        bt_count = 0
+        bt_pos = temp_pos
+        while bt_pos <= ps.endpos && ps.text[bt_pos] == '`'
+            bt_count += 1
+            bt_pos = nextind(ps.text, bt_pos)
         end
+        bt_count >= 3 && return true
     end
 
-    matches_keyword(ps, "```") && return true
+    count_backticks_at(ps) >= 3 && return true
 
     return false
 end

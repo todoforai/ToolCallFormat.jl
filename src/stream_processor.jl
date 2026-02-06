@@ -25,7 +25,7 @@ end
     STRING_SINGLE    # '...'
     STRING_DOUBLE    # "..."
     STRING_TRIPLE    # """..."""
-    STRING_BACKTICK  # ```...``` (inside tool call args, not content block)
+    STRING_BACKTICK  # ```...``` (variable-length, N >= 3 backticks)
 end
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -71,11 +71,12 @@ mutable struct StreamProcessor
     ident_buf::IOBuffer
     tool_buf::IOBuffer
 
-    # For detecting """ and ``` (need last 3 chars)
+    # For detecting """ (need last 3 chars)
     recent_chars::Vector{Char}
 
-    # Content block tracking
-    backtick_count::Int          # Count consecutive backticks
+    # Backtick fence tracking (for fenced strings and content blocks)
+    backtick_count::Int              # Count consecutive backticks in current run
+    opening_backtick_count::Int      # How many backticks opened the current fence (N >= 3)
 
     # Tool detection
     known_tools::Set{Symbol}
@@ -103,6 +104,7 @@ function StreamProcessor(;
         IOBuffer(),
         Char[],
         0,     # backtick_count
+        0,     # opening_backtick_count
         known_tools,
         emit_text,
         emit_tool,
@@ -205,15 +207,31 @@ function handle_tool_state!(sp::StreamProcessor, c::Char)
     # Handle escape sequences
     if sp.escape_next
         sp.escape_next = false
+        sp.backtick_count = 0
         return
     end
 
     # Update string state and paren depth
     if sp.string_state == STRING_NONE
-        sp.string_state = detect_string_start(sp, c)
-        if sp.string_state == STRING_NONE
-            c == '(' && (sp.paren_depth += 1)
-            c == ')' && (sp.paren_depth -= 1)
+        if c == '`'
+            sp.backtick_count += 1
+            return  # Don't check anything else until non-backtick arrives
+        else
+            if sp.backtick_count >= 3
+                # Entered a backtick fence inside args
+                sp.string_state = STRING_BACKTICK
+                sp.opening_backtick_count = sp.backtick_count
+                sp.backtick_count = 0
+                # Process this non-backtick char normally inside the string
+                return
+            end
+            sp.backtick_count = 0
+            # Check other string starts (", ', """)
+            sp.string_state = detect_string_start(sp, c)
+            if sp.string_state == STRING_NONE
+                c == '(' && (sp.paren_depth += 1)
+                c == ')' && (sp.paren_depth -= 1)
+            end
         end
     else
         handle_string_char!(sp, c)
@@ -230,10 +248,16 @@ function handle_after_paren_state!(sp::StreamProcessor, c::Char)
     if c == '`'
         write(sp.tool_buf, c)
         sp.backtick_count += 1
-        if sp.backtick_count == 3
-            sp.state = IN_CONTENT_BLOCK
-            sp.backtick_count = 0  # Reset so opening ``` doesn't trigger closing detection
-        end
+        # Don't transition yet — wait for non-backtick to know the fence length
+    elseif sp.backtick_count >= 3
+        # Non-backtick after N >= 3 backticks — enter content block with known fence length
+        write(sp.tool_buf, c)
+        sp.opening_backtick_count = sp.backtick_count
+        sp.backtick_count = 0
+        sp.state = IN_CONTENT_BLOCK
+    elseif sp.backtick_count > 0
+        # Had some backticks but < 3 — not a valid content block, abort
+        abort_tool_call!(sp, c)
     elseif _sp_is_whitespace(c)
         # Whitespace before potential content block - DON'T add to tool_buf yet
     elseif c == '\n'
@@ -252,7 +276,8 @@ function handle_content_state!(sp::StreamProcessor, c::Char)
     if c == '`'
         sp.backtick_count += 1
     else
-        if sp.backtick_count >= 3
+        if sp.backtick_count == sp.opening_backtick_count
+            # Exact match — close the content block
             complete_tool_call!(sp)
             return
         end
@@ -267,13 +292,9 @@ end
 function detect_string_start(sp::StreamProcessor, c::Char)::StringState
     recent = sp.recent_chars
 
-    if length(recent) >= 3
-        last3 = @view recent[end-2:end]
-        if last3 == ['"', '"', '"']
-            return STRING_TRIPLE
-        elseif last3 == ['`', '`', '`']
-            return STRING_BACKTICK
-        end
+    # Check for triple-quote (""") - backtick detection is now handled by counter in handle_tool_state!
+    if length(recent) >= 3 && @view(recent[end-2:end]) == ['"', '"', '"']
+        return STRING_TRIPLE
     end
 
     if c == '"'
@@ -286,6 +307,25 @@ function detect_string_start(sp::StreamProcessor, c::Char)::StringState
 end
 
 function handle_string_char!(sp::StreamProcessor, c::Char)
+    if sp.string_state == STRING_BACKTICK
+        # Variable-length backtick fence: count backticks, close on exact match
+        if c == '`'
+            sp.backtick_count += 1
+        else
+            if sp.backtick_count == sp.opening_backtick_count
+                # Exact match — close the fence
+                sp.string_state = STRING_NONE
+                sp.backtick_count = 0
+                # Process the non-backtick char for paren depth
+                c == '(' && (sp.paren_depth += 1)
+                c == ')' && (sp.paren_depth -= 1)
+                return
+            end
+            sp.backtick_count = 0
+        end
+        return
+    end
+
     if c == '\\'
         sp.escape_next = true
         return
@@ -299,9 +339,6 @@ function handle_string_char!(sp::StreamProcessor, c::Char)
         STRING_NONE
     elseif sp.string_state == STRING_TRIPLE &&
            length(recent) >= 3 && @view(recent[end-2:end]) == ['"', '"', '"']
-        STRING_NONE
-    elseif sp.string_state == STRING_BACKTICK &&
-           length(recent) >= 3 && @view(recent[end-2:end]) == ['`', '`', '`']
         STRING_NONE
     else
         sp.string_state
@@ -360,8 +397,25 @@ function finalize!(sp::StreamProcessor)
     flush_text!(sp)
 
     if sp.state == AFTER_PAREN
+        # Check if backticks were accumulating at EOF (content block never got a non-backtick)
+        if sp.backtick_count >= 3
+            # Treat as content block that ended at EOF — let parser handle it
+        end
         complete_tool_call!(sp)
-    elseif sp.state == IN_TOOL_CALL || sp.state == IN_CONTENT_BLOCK
+    elseif sp.state == IN_CONTENT_BLOCK
+        # EOF while in content block — check if pending backticks close it
+        if sp.backtick_count == sp.opening_backtick_count
+            complete_tool_call!(sp)
+        else
+            raw = String(take!(sp.tool_buf))
+            parsed = parse_tool_call(raw; require_line_end=false)
+            if !isnothing(parsed)
+                sp.emit_tool(parsed)
+            else
+                sp.emit_text("[Incomplete tool call: $raw]")
+            end
+        end
+    elseif sp.state == IN_TOOL_CALL
         raw = String(take!(sp.tool_buf))
         parsed = parse_tool_call(raw; require_line_end=false)
         if !isnothing(parsed)
@@ -385,6 +439,7 @@ function reset!(sp::StreamProcessor)
     sp.escape_next = false
     sp.at_line_start = true
     sp.backtick_count = 0
+    sp.opening_backtick_count = 0
     take!(sp.text_buf)
     take!(sp.ident_buf)
     take!(sp.tool_buf)

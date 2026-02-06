@@ -37,7 +37,7 @@ tool_name(param: value)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `:`
-- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
+- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
 
 **Types:** `str`, `int`, `bool`, `null`, `list`, `obj`, `codeblock`
 
@@ -59,6 +59,17 @@ bash(
   ```
   timeout: 60000
 )
+
+When code contains backticks (e.g. markdown, shell substitution), increase the fence:
+bash(
+  ````
+  cat <<'EOF'
+  ```python
+  print("hello")
+  ```
+  EOF
+  ````
+)
 """
 end
 
@@ -73,7 +84,7 @@ tool_name(param: value, param2: value2)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `:`
-- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
+- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
 
 **Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object` ({k: v}), `codeblock` (``` fenced block ```)
 
@@ -95,6 +106,17 @@ bash(
   ```
   timeout: 60000
 )
+
+When code contains backticks (e.g. markdown, shell substitution), increase the fence:
+bash(
+  ````
+  cat <<'EOF'
+  ```python
+  print("hello")
+  ```
+  EOF
+  ````
+)
 """
 end
 
@@ -109,7 +131,7 @@ tool_name(param=value, param2=value2)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `=`
-- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
+- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
 
 **Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `dict` ({k: v}), `codeblock` (``` fenced block ```)
 
@@ -128,6 +150,11 @@ bash(```
 ls -la
 echo "hello"
 ```, timeout=60000)
+
+When code contains backticks, increase the fence:
+bash(````
+echo "use ```code``` in markdown"
+````, timeout=60000)
 """
 end
 
@@ -142,7 +169,7 @@ tool_name(param: value, param2: value2)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `:`
-- Codeblocks use triple backticks: ```content``` (inline or multi-line, auto-dedented)
+- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
 
 **Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object`, `codeblock`
 
@@ -163,6 +190,13 @@ bash(
     echo "hello"
     ```
     timeout: 60000
+)
+
+When code contains backticks (e.g. markdown, shell substitution), increase the fence:
+bash(
+    ````
+    echo "use ```code``` in markdown"
+    ````
 )
 """
 end

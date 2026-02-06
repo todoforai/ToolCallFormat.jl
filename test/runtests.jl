@@ -108,6 +108,37 @@ const test_ctx = TestContext()
         @test call12 !== nothing
         @test call12.kwargs["_0"].value == "echo hello"
 
+        # --- Variable-length backtick fences ---
+
+        # 4-backtick fence as parameter value
+        call_4bt = parse_tool_call("bash(cmd: ````echo \"use ```code``` here\"````)\n")
+        @test call_4bt !== nothing
+        @test call_4bt.kwargs["cmd"].value == "echo \"use ```code``` here\""
+
+        # 5-backtick fence
+        call_5bt = parse_tool_call("bash(cmd: `````contains ```` and ``` inside`````)\n")
+        @test call_5bt !== nothing
+        @test call_5bt.kwargs["cmd"].value == "contains ```` and ``` inside"
+
+        # Content block with 4-backtick fence
+        call_4bt_content = parse_tool_call("shell(lang: \"sh\") ````\necho ```hello```\n````")
+        @test call_4bt_content !== nothing
+        @test call_4bt_content.content == "echo ```hello```"
+
+        # Backward compat: 3-backtick still works
+        call_3bt = parse_tool_call("bash(cmd: ```simple```)\n")
+        @test call_3bt !== nothing
+        @test call_3bt.kwargs["cmd"].value == "simple"
+
+        # "Exactly N" rule: content with N-1 backticks doesn't close a N-fence
+        call_exact = parse_tool_call("bash(cmd: ````has ``` but not close````)\n")
+        @test call_exact !== nothing
+        @test call_exact.kwargs["cmd"].value == "has ``` but not close"
+
+        # has_valid_line_ending with 4-backtick content block
+        call_4bt_ending = parse_tool_call("shell(lang: \"sh\") ````\ncode\n````")
+        @test call_4bt_ending !== nothing
+
         println("✓ Parser tests passed")
     end
 
@@ -153,6 +184,45 @@ const test_ctx = TestContext()
         finalize!(sp4)
         @test length(tools3) == 2
 
+        # --- Variable-length backtick fences in StreamProcessor ---
+
+        # 4-backtick fence inside args
+        tools_4bt = ParsedCall[]
+        sp_4bt = StreamProcessor(
+            known_tools = Set([:bash]),
+            emit_tool = c -> push!(tools_4bt, c)
+        )
+        process_chunk!(sp_4bt, "bash(cmd: ````has ``` inside````)\n")
+        finalize!(sp_4bt)
+        @test length(tools_4bt) == 1
+        @test tools_4bt[1].kwargs["cmd"].value == "has ``` inside"
+
+        # 4-backtick content block (streaming chunks)
+        tools_4bt_content = ParsedCall[]
+        sp_4bt_c = StreamProcessor(
+            known_tools = Set([:shell]),
+            emit_tool = c -> push!(tools_4bt_content, c)
+        )
+        # Send in multiple chunks to test streaming
+        process_chunk!(sp_4bt_c, "shell(lang: \"sh\") ``")
+        process_chunk!(sp_4bt_c, "``\necho ```hello")
+        process_chunk!(sp_4bt_c, "```\n````")
+        process_chunk!(sp_4bt_c, "\nmore text")
+        finalize!(sp_4bt_c)
+        @test length(tools_4bt_content) == 1
+        @test tools_4bt_content[1].content == "echo ```hello```"
+
+        # 3-backtick backward compat in stream processor
+        tools_3bt = ParsedCall[]
+        sp_3bt = StreamProcessor(
+            known_tools = Set([:bash]),
+            emit_tool = c -> push!(tools_3bt, c)
+        )
+        process_chunk!(sp_3bt, "bash(cmd: ```simple```)\n")
+        finalize!(sp_3bt)
+        @test length(tools_3bt) == 1
+        @test tools_3bt[1].kwargs["cmd"].value == "simple"
+
         println("✓ StreamProcessor tests passed")
     end
 
@@ -177,6 +247,37 @@ const test_ctx = TestContext()
         call = parse_tool_call(original)
         serialized = serialize_parsed_call(call)
         @test serialized == "read_file(path: \"/test.txt\")"
+
+        # --- Variable-length fence serializer ---
+
+        # required_fence_length: no backticks -> 3
+        @test required_fence_length("hello world") == 3
+
+        # required_fence_length: single backtick -> 3
+        @test required_fence_length("use `code` here") == 3
+
+        # required_fence_length: triple backticks -> 4
+        @test required_fence_length("use ```code``` here") == 4
+
+        # required_fence_length: 4 backticks -> 5
+        @test required_fence_length("use ````code```` here") == 5
+
+        # serialize_codeblock_value: no backticks uses 3
+        cb = serialize_codeblock_value("hello")
+        @test startswith(cb, "```\n")
+        @test endswith(cb, "```")
+
+        # serialize_codeblock_value: content with ``` uses 4
+        cb2 = serialize_codeblock_value("echo ```code```")
+        @test startswith(cb2, "````\n")
+        @test endswith(cb2, "````")
+
+        # serialize_tool_call_with_content: round-trip with backtick content
+        content_with_bt = "echo ```hello```"
+        serialized_tc = serialize_tool_call_with_content("shell", Dict("lang" => "sh"), content_with_bt)
+        reparsed = parse_tool_call(serialized_tc)
+        @test reparsed !== nothing
+        @test reparsed.content == content_with_bt
 
         println("✓ Serializer tests passed")
     end

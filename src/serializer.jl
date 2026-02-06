@@ -4,6 +4,7 @@
 export serialize_value, serialize_tool_call, serialize_parsed_call
 export serialize_tool_call_with_content, serialize_tool_call_multiline
 export serialize_tool_schema, get_kv_separator
+export required_fence_length, serialize_codeblock_value
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Value Serialization
@@ -87,19 +88,49 @@ function serialize_tool_call(name::String, kwargs::AbstractDict; style::CallStyl
 end
 
 """
+Determine the minimum fence length needed to safely wrap `content`.
+Scans for the longest consecutive backtick run and returns max(3, run + 1).
+"""
+function required_fence_length(content::AbstractString)::Int
+    max_run = 0
+    current_run = 0
+    for c in content
+        if c == '`'
+            current_run += 1
+            max_run = max(max_run, current_run)
+        else
+            current_run = 0
+        end
+    end
+    return max(3, max_run + 1)
+end
+
+"""
+Wrap content in a variable-length backtick fence.
+Automatically selects the shortest safe fence length.
+Adds a newline before the closing fence if content ends with a backtick.
+"""
+function serialize_codeblock_value(content::AbstractString)::String
+    n = required_fence_length(content)
+    fence = repeat('`', n)
+    sep = endswith(content, '`') ? "\n" : ""
+    return "$(fence)\n$(content)$(sep)$(fence)"
+end
+
+"""
 Serialize a tool call with content block.
-```
-shell(cmd: "sh") ```
-ls -la
-```
-```
+Uses variable-length fences to safely wrap content containing backticks.
+Adds a newline before the closing fence if content ends with a backtick.
 """
 function serialize_tool_call_with_content(name::String, kwargs::AbstractDict, content::String; style::CallStyle=CONCISE)::String
     call = serialize_tool_call(name, kwargs; style)
     if isempty(content)
         return call
     end
-    return "$(call) ```\n$(content)```"
+    n = required_fence_length(content)
+    fence = repeat('`', n)
+    sep = endswith(content, '`') ? "\n" : ""
+    return "$(call) $(fence)\n$(content)$(sep)$(fence)"
 end
 
 """Serialize a ParsedCall back to string format."""
