@@ -148,10 +148,12 @@ macro deftool(args...)
     internal_names = Set(f.name for f in internal_fields)
     new_body = _transform_body(body, union(schema_names, internal_names))
 
-    execute_body = :(tool.result = string($new_body))
     func_name_str = string(func_name)
     # Execute takes (tool, ctx) - ctx is always available in the body
-    execute_lambda = :((tool, ctx) -> $execute_body)
+    # NOTE: tool.result assignment is done OUTSIDE the lambda so that `return` statements
+    # in the body don't bypass it. The lambda returns the body's value (including via `return`),
+    # and the generated execute() captures and stores it.
+    execute_lambda = :((tool, ctx) -> $new_body)
 
     sn = esc(struct_name)
     is_passive = isempty(params_for_gen) && isempty(internal_for_gen)
@@ -229,7 +231,7 @@ function _generate_passive_tool(sn, tool_name, description, execute_expr=nothing
     end
 
     if execute_expr !== nothing
-        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = $(esc(execute_expr))(tool, ctx)))
+        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = (tool.result = string($(esc(execute_expr))(tool, ctx)))))
     end
 
     result
@@ -294,7 +296,7 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
     end
 
     if execute_expr !== nothing
-        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = $(esc(execute_expr))(tool, ctx)))
+        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = (tool.result = string($(esc(execute_expr))(tool, ctx)))))
     end
 
     result
