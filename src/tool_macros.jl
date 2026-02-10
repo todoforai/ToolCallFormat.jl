@@ -56,7 +56,7 @@ They are system-injected via execute kwargs.
 # Internal fields
 
 Internal fields (in tuple after description) become struct fields but are NOT in schema.
-Useful for preprocess hooks that need to store computed state.
+Useful for storing intermediate state during execution.
 
 # Examples
 
@@ -83,13 +83,12 @@ Useful for preprocess hooks that need to store computed state.
     read(full_path, String)
 end
 
-# With internal fields for preprocess hook
+# With internal fields
 @deftool "Modify file" (postcontent::String="", model=["gpt4o"]) function modify_file(
     "Path to the file to modify" => file_path::String,
     "New content for the file" => content::CodeBlock;
     ctx::Context
 )
-    # postcontent is set by preprocess hook, not by AI
     apply_changes(file_path, postcontent, ctx)
 end
 ```
