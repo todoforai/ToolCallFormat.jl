@@ -224,7 +224,9 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
     io = IOBuffer()
 
     if !isempty(schema.description)
-        write(io, "/// $(schema.description)\n")
+        for line in split(schema.description, '\n')
+            write(io, "/// $(line)\n")
+        end
     end
 
     write(io, "$(schema.name)(")
@@ -257,7 +259,9 @@ function generate_tool_definition_typescript(schema::ToolSchema)::String
     io = IOBuffer()
 
     if !isempty(schema.description)
-        write(io, "// $(schema.description)\n")
+        for line in split(schema.description, '\n')
+            write(io, "// $(line)\n")
+        end
     end
 
     write(io, "$(schema.name)(")
@@ -288,7 +292,9 @@ function generate_tool_definition_python(schema::ToolSchema)::String
     io = IOBuffer()
 
     if !isempty(schema.description)
-        write(io, "# $(schema.description)\n")
+        for line in split(schema.description, '\n')
+            write(io, "# $(line)\n")
+        end
     end
 
     write(io, "$(schema.name)(")
@@ -324,7 +330,9 @@ function generate_tool_definition_minimal(schema::ToolSchema)::String
     io = IOBuffer()
 
     if !isempty(schema.description)
-        write(io, "/// $(schema.description)\n")
+        for line in split(schema.description, '\n')
+            write(io, "/// $(line)\n")
+        end
     end
 
     write(io, "$(schema.name)(")
