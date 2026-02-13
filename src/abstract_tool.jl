@@ -58,8 +58,8 @@ function create_tool(::Type{T}, call::ParsedCall) where T <: AbstractTool
         name_sym = p.name isa Symbol ? p.name : Symbol(p.name)
         pv = get(call.kwargs, name_str, nothing)
 
-        if p.type == "codeblock"
-            # Codeblock can come from kwargs or fall back to call.content
+        if p.type in ("text", "codeblock")
+            # Text/codeblock can come from kwargs or fall back to call.content
             kwargs[name_sym] = pv !== nothing ? pv.value : call.content
         elseif pv !== nothing
             # Only set if present - let constructor handle defaults

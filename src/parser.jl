@@ -310,6 +310,17 @@ function count_backticks_at(ps::ParserState)::Int
     return count
 end
 
+"""Count consecutive double-quote characters at current position without advancing."""
+function count_quotes_at(ps::ParserState)::Int
+    count = 0
+    pos = ps.pos
+    while pos <= ps.endpos && ps.text[pos] == '"'
+        count += 1
+        pos = nextind(ps.text, pos)
+    end
+    return count
+end
+
 """Parse an inline codeblock value with variable-length fences: N backticks open, exactly N close (N >= 3)."""
 function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
     skip_whitespace!(ps)
@@ -336,8 +347,6 @@ function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
                 if is_eof(ps) || current_char(ps) != '`'
                     content = content_start <= content_end ? ps.text[content_start:content_end] : ""
                     raw = ps.text[start:prevind(ps.text, ps.pos)]
-                    # Strip surrounding newlines and dedent
-                    content = strip(content, '\n')
                     content = dedent(content)
                     return ParsedValue(value=content, raw=raw)
                 end
@@ -354,11 +363,55 @@ function parse_codeblock!(ps::ParserState)::Union{ParsedValue, Nothing}
     return nothing  # Unterminated codeblock
 end
 
-"""Parse any value (string, number, boolean, null, array, object, or codeblock)."""
+"""Parse a triple-quoted text value with variable-length fences: N quotes open, exactly N close (N >= 3)."""
+function parse_triple_quote!(ps::ParserState)::Union{ParsedValue, Nothing}
+    skip_whitespace!(ps)
+
+    # Must start with at least 3 double-quote characters
+    opening_count = count_quotes_at(ps)
+    opening_count < 3 && return nothing
+
+    start = ps.pos
+    advance_n!(ps, opening_count)  # Skip opening fence
+
+    # Content starts immediately after opening fence — exact pass-through, no stripping
+    content_start = ps.pos
+
+    # Find closing fence: exactly opening_count quotes followed by non-quote (or EOF)
+    while !is_eof(ps)
+        if current_char(ps) == '"'
+            run_start = ps.pos
+            run_count = count_quotes_at(ps)
+            if run_count == opening_count
+                content_end = prevind(ps.text, run_start)
+                advance_n!(ps, run_count)
+                if is_eof(ps) || current_char(ps) != '"'
+                    content = content_start <= content_end ? ps.text[content_start:content_end] : ""
+                    raw = ps.text[start:prevind(ps.text, ps.pos)]
+                    content = dedent(content)
+                    return ParsedValue(value=content, raw=raw)
+                end
+                # More quotes follow — not the closing fence, continue
+            else
+                advance_n!(ps, run_count)
+            end
+        else
+            advance!(ps)
+        end
+    end
+
+    return nothing  # Unterminated triple-quote
+end
+
+"""Parse any value (string, number, boolean, null, array, object, codeblock, or triple-quoted text)."""
 function parse_value!(ps::ParserState)::Union{ParsedValue, Nothing}
     skip_whitespace!(ps)
     c = current_char(ps)
 
+    # Check for triple-quote (""") before regular string
+    if c == '"' && peek_char(ps) == '"' && peek_char(ps, 2) == '"'
+        return parse_triple_quote!(ps)
+    end
     (c == '"' || c == '\'') && return parse_string!(ps)
     (isdigit(c) || (c == '-' && isdigit(peek_char(ps)))) && return parse_number!(ps)
     c == '[' && return parse_array!(ps)
@@ -469,7 +522,7 @@ function parse_content_block!(ps::ParserState)::String
                     advance_n!(ps, run_count)
                     if is_eof(ps) || current_char(ps) != '`'
                         content = content_start <= content_end ? ps.text[content_start:content_end] : ""
-                        return strip(content, '\n')
+                        return content
                     end
                 else
                     advance_n!(ps, run_count)

@@ -1,22 +1,25 @@
 # Tool definition macros
 
-export @deftool, CodeBlock
+export @deftool, TextBlock, CodeBlock
 
 using UUIDs: UUID, uuid4
 
 #==============================================================================#
-# CodeBlock marker
+# TextBlock marker
 #==============================================================================#
 
-"""Marker type for codeblock parameters — tells the LLM to use triple-backtick formatting.
+"""Marker type for text block parameters — tells the LLM to use triple-quote (\"\"\") formatting.
 Only used as a type annotation in @deftool; the generated struct field is String."""
-struct CodeBlock end
+struct TextBlock end
+
+"""Backward-compatible alias for TextBlock."""
+const CodeBlock = TextBlock
 
 #==============================================================================#
 # Valid schema types
 #==============================================================================#
 
-const VALID_SCHEMA_TYPES = Set(["string", "codeblock", "number", "integer", "boolean", "array", "object"])
+const VALID_SCHEMA_TYPES = Set(["string", "text", "codeblock", "number", "integer", "boolean", "array", "object"])
 const RESERVED_FIELD_NAMES = Set([:_id, :result])
 
 #==============================================================================#
@@ -426,7 +429,7 @@ function _type_to_schema(type)
     type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :String)
     type_map = Dict(:String => "string", :Int => "integer", :Int64 => "integer",
                     :Float64 => "number", :Bool => "boolean", :Vector => "array",
-                    :Dict => "object", :CodeBlock => "codeblock")
+                    :Dict => "object", :TextBlock => "text", :CodeBlock => "text")
     get(type_map, type_sym, "string")
 end
 
@@ -456,7 +459,7 @@ function _validate_param(param, index)
 end
 
 function _schema_to_julia_type(type_str::String)
-    type_str in ("string", "codeblock") ? String :
+    type_str in ("string", "text", "codeblock") ? String :
     type_str == "number" ? Union{Float64,Nothing} :
     type_str == "integer" ? Union{Int,Nothing} :
     type_str == "boolean" ? Bool :

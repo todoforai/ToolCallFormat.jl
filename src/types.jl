@@ -63,7 +63,7 @@ A parsed tool call extracted from LLM output.
 # Fields
 - `name`: Tool name (e.g., "read_file")
 - `kwargs`: Named arguments as Dict{String, ParsedValue}
-- `content`: Content block text (for tools with ```...```)
+- `content`: Content block text (for tools with backtick content blocks after `)`)
 - `raw`: Original text that was parsed
 """
 @kwdef mutable struct ParsedCall
@@ -83,7 +83,7 @@ Used when generating tool definitions for system prompts.
 """
 @kwdef struct ParamSchema
     name::String
-    type::String           # "string", "number", "boolean", "null", "string[]", "object", "codeblock"
+    type::String           # "string", "number", "boolean", "null", "string[]", "object", "text", "codeblock"
     description::String = ""
     required::Bool = true
 end

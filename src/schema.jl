@@ -37,38 +37,28 @@ tool_name(param: value)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `:`
-- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
+- **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
+- **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `str`, `int`, `bool`, `null`, `list`, `obj`, `codeblock`
+**Types:** `str`, `int`, `bool`, `null`, `list`, `obj`, `text`
 
 **Examples:**
 read_file("/file.txt")
 
 read_file("/file.txt", limit: 100)
 
-create("/tmp/hello.txt", content: ```Hello, world!```)
+create("/tmp/hello.txt", content: \"\"\"\nHello, world!\n\"\"\")
 
 edit("/test.txt", old: "hello", new: "goodbye")
 
-bash(```ls -la```)
+bash(\"\"\"\nls -la\n\"\"\")
 
 bash(
-  ```
+  \"\"\"
   ls -la
   echo "hello"
-  ```
+  \"\"\"
   timeout: 60000
-)
-
-When code contains backticks (e.g. markdown, shell substitution), increase the fence:
-bash(
-  ````
-  cat <<'EOF'
-  ```python
-  print("hello")
-  ```
-  EOF
-  ````
 )
 """
 end
@@ -84,38 +74,28 @@ tool_name(param: value, param2: value2)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `:`
-- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
+- **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
+- **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object` ({k: v}), `codeblock` (``` fenced block ```)
+**Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object` ({k: v}), `text` (\"\"\" fenced block \"\"\")
 
 **Examples:**
 read_file("/file.txt")
 
 read_file(path: "/file.txt", limit: 100)
 
-create("/tmp/hello.txt", content: ```Hello, world!```)
+create("/tmp/hello.txt", content: \"\"\"\nHello, world!\n\"\"\")
 
 edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
 
-bash(```ls -la```)
+bash(\"\"\"\nls -la\n\"\"\")
 
 bash(
-  ```
+  \"\"\"
   ls -la
   echo "hello"
-  ```
+  \"\"\"
   timeout: 60000
-)
-
-When code contains backticks (e.g. markdown, shell substitution), increase the fence:
-bash(
-  ````
-  cat <<'EOF'
-  ```python
-  print("hello")
-  ```
-  EOF
-  ````
 )
 """
 end
@@ -131,30 +111,23 @@ tool_name(param=value, param2=value2)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `=`
-- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
+- **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
+- **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `dict` ({k: v}), `codeblock` (``` fenced block ```)
+**Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `dict` ({k: v}), `text` (\"\"\" fenced block \"\"\")
 
 **Examples:**
 read_file("/file.txt")
 
 read_file("/file.txt", limit=100)
 
-create("/tmp/hello.txt", content=```Hello, world!```)
+create("/tmp/hello.txt", content=\"\"\"\nHello, world!\n\"\"\")
 
 edit(file_path="/test.txt", old_string="hello", new_string="goodbye")
 
-bash(```ls -la```)
+bash(\"\"\"\nls -la\n\"\"\")
 
-bash(```
-ls -la
-echo "hello"
-```, timeout=60000)
-
-When code contains backticks, increase the fence:
-bash(````
-echo "use ```code``` in markdown"
-````, timeout=60000)
+bash(\"\"\"\nls -la\necho "hello"\n\"\"\", timeout=60000)
 """
 end
 
@@ -169,34 +142,28 @@ tool_name(param: value, param2: value2)
 - Tool call must start at the **beginning of a line**
 - Tool call must end with `)` followed by **newline**
 - Positional args (no name needed) come first, then named args with `:`
-- **Codeblocks** use backtick fences (N >= 3). Use ``` for normal code. If your code contains ```, use ```` (4 backticks) as the fence. If it contains ````, use ````` (5), and so on. The fence closes only when exactly N backticks appear.
+- **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
+- **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object`, `codeblock`
+**Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object`, `text`
 
 **Examples:**
 read_file("/file.txt")
 
 read_file("/file.txt", limit: 100)
 
-create("/tmp/hello.txt", content: ```Hello, world!```)
+create("/tmp/hello.txt", content: \"\"\"\nHello, world!\n\"\"\")
 
 edit(file_path: "/test.txt", old_string: "hello", new_string: "goodbye")
 
-bash(```ls -la```)
+bash(\"\"\"\nls -la\n\"\"\")
 
 bash(
-    ```
+    \"\"\"
     ls -la
     echo "hello"
-    ```
+    \"\"\"
     timeout: 60000
-)
-
-When code contains backticks (e.g. markdown, shell substitution), increase the fence:
-bash(
-    ````
-    echo "use ```code``` in markdown"
-    ````
 )
 """
 end
@@ -406,8 +373,9 @@ function python_type(t::String)::String
         "null" => "None",
         "string[]" => "list[str]",
         "object" => "dict",
-        "code" => "codeblock",
-        "codeblock" => "codeblock"
+        "code" => "text",
+        "codeblock" => "text",
+        "text" => "text"
     )
     get(type_map, lowercase(t), t)
 end
@@ -422,8 +390,9 @@ function short_type(t::String)::String
         "null" => "null",
         "string[]" => "str[]",
         "object" => "obj",
-        "code" => "```",
-        "codeblock" => "```"
+        "code" => "text",
+        "codeblock" => "text",
+        "text" => "text"
     )
     get(type_map, lowercase(t), t)
 end
@@ -458,7 +427,7 @@ function code_tool_schema(;
     ]
     push!(param_schemas, ParamSchema(
         name=code_param[1],
-        type="codeblock",
+        type="text",
         description=code_param[2],
         required=code_param[3]
     ))

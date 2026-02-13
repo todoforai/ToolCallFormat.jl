@@ -71,17 +71,17 @@ const test_ctx = TestContext()
         call7 = parse_tool_call("create(path: \"/tmp/test.py\", content: ```python\nprint('hello')\n```)\n")
         @test call7 !== nothing
         @test call7.name == "create"
-        @test call7.kwargs["content"].value == "python\nprint('hello')"
+        @test call7.kwargs["content"].value == "python\nprint('hello')\n"
 
-        # Content on first line, closing backticks on next line (previously broken)
+        # Content on first line, closing backticks on next line
         call7b = parse_tool_call("create(path: \"/tmp/hello.txt\", content: ```Hello, world!\n```)\n")
         @test call7b !== nothing
-        @test call7b.kwargs["content"].value == "Hello, world!"
+        @test call7b.kwargs["content"].value == "Hello, world!\n"
 
-        # Multi-line codeblock content
+        # Multi-line codeblock content (newlines are passed as-is)
         call8 = parse_tool_call("bash(script: ```\necho hello\necho world\n```)\n")
         @test call8 !== nothing
-        @test call8.kwargs["script"].value == "echo hello\necho world"
+        @test call8.kwargs["script"].value == "\necho hello\necho world\n"
 
         # Positional arguments - single string
         call9 = parse_tool_call("read_file(\"/test.txt\")\n")
@@ -123,7 +123,7 @@ const test_ctx = TestContext()
         # Content block with 4-backtick fence
         call_4bt_content = parse_tool_call("shell(lang: \"sh\") ````\necho ```hello```\n````")
         @test call_4bt_content !== nothing
-        @test call_4bt_content.content == "echo ```hello```"
+        @test call_4bt_content.content == "\necho ```hello```\n"
 
         # Backward compat: 3-backtick still works
         call_3bt = parse_tool_call("bash(cmd: ```simple```)\n")
@@ -138,6 +138,34 @@ const test_ctx = TestContext()
         # has_valid_line_ending with 4-backtick content block
         call_4bt_ending = parse_tool_call("shell(lang: \"sh\") ````\ncode\n````")
         @test call_4bt_ending !== nothing
+
+        # --- Triple-quote text blocks ---
+
+        # Inline triple-quote as named parameter
+        call_tq1 = parse_tool_call("create(path: \"/tmp/hello.txt\", content: \"\"\"Hello, world!\"\"\")\n")
+        @test call_tq1 !== nothing
+        @test call_tq1.name == "create"
+        @test call_tq1.kwargs["content"].value == "Hello, world!"
+
+        # Multi-line triple-quote (exact pass-through, newlines preserved as-is)
+        call_tq2 = parse_tool_call("create(path: \"/tmp/test.py\", content: \"\"\"\nprint('hello')\n\"\"\")\n")
+        @test call_tq2 !== nothing
+        @test call_tq2.kwargs["content"].value == "\nprint('hello')\n"
+
+        # Triple-quote with multiple lines
+        call_tq3 = parse_tool_call("bash(script: \"\"\"\necho hello\necho world\n\"\"\")\n")
+        @test call_tq3 !== nothing
+        @test call_tq3.kwargs["script"].value == "\necho hello\necho world\n"
+
+        # Positional triple-quote
+        call_tq4 = parse_tool_call("bash(\"\"\"echo hello\"\"\")\n")
+        @test call_tq4 !== nothing
+        @test call_tq4.kwargs["_0"].value == "echo hello"
+
+        # 4-quote fence for content containing """
+        call_tq5 = parse_tool_call("bash(cmd: \"\"\"\"has \"\"\" inside\"\"\"\")\n")
+        @test call_tq5 !== nothing
+        @test call_tq5.kwargs["cmd"].value == "has \"\"\" inside"
 
         println("✓ Parser tests passed")
     end
@@ -210,7 +238,7 @@ const test_ctx = TestContext()
         process_chunk!(sp_4bt_c, "\nmore text")
         finalize!(sp_4bt_c)
         @test length(tools_4bt_content) == 1
-        @test tools_4bt_content[1].content == "echo ```hello```"
+        @test tools_4bt_content[1].content == "\necho ```hello```\n"
 
         # 3-backtick backward compat in stream processor
         tools_3bt = ParsedCall[]
@@ -277,7 +305,34 @@ const test_ctx = TestContext()
         serialized_tc = serialize_tool_call_with_content("shell", Dict("lang" => "sh"), content_with_bt)
         reparsed = parse_tool_call(serialized_tc)
         @test reparsed !== nothing
-        @test reparsed.content == content_with_bt
+        @test reparsed.content == "\n" * content_with_bt * "\n"
+
+        # --- Triple-quote text value serialization ---
+
+        # required_quote_fence_length: no quotes -> 3
+        @test required_quote_fence_length("hello world") == 3
+
+        # required_quote_fence_length: single quote -> 3
+        @test required_quote_fence_length("say \"hello\"") == 3
+
+        # required_quote_fence_length: triple quotes -> 4
+        @test required_quote_fence_length("use \"\"\"text\"\"\" here") == 4
+
+        # serialize_text_value: no quotes uses 3
+        tv = serialize_text_value("hello")
+        @test startswith(tv, "\"\"\"\n")
+        @test endswith(tv, "\"\"\"")
+
+        # serialize_text_value: content with """ uses 4
+        tv2 = serialize_text_value("has \"\"\"triple\"\"\" quotes")
+        @test startswith(tv2, "\"\"\"\"\n")
+        @test endswith(tv2, "\"\"\"\"")
+
+        # serialize_text_value round-trip (content is exact pass-through, includes leading \n from fence)
+        tv3 = serialize_text_value("Hello, world!")
+        call_rt = parse_tool_call("create(path: \"/tmp/test.txt\", content: $(tv3))\n")
+        @test call_rt !== nothing
+        @test call_rt.kwargs["content"].value == "\nHello, world!"
 
         println("✓ Serializer tests passed")
     end
