@@ -1,6 +1,6 @@
 # Tool definition macros
 
-export @deftool, TextBlock, CodeBlock
+export @deftool, TextBlock
 
 using UUIDs: UUID, uuid4
 
@@ -12,8 +12,6 @@ using UUIDs: UUID, uuid4
 Only used as a type annotation in @deftool; the generated struct field is String."""
 struct TextBlock end
 
-"""Backward-compatible alias for TextBlock."""
-const CodeBlock = TextBlock
 
 #==============================================================================#
 # Valid schema types
@@ -89,7 +87,7 @@ end
 # With internal fields
 @deftool "Modify file" (postcontent::String="", model=["gpt4o"]) function modify_file(
     "Path to the file to modify" => file_path::String,
-    "New content for the file" => content::CodeBlock;
+    "New content for the file" => content::TextBlock;
     ctx::Context
 )
     apply_changes(file_path, postcontent, ctx)
@@ -429,7 +427,7 @@ function _type_to_schema(type)
     type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :String)
     type_map = Dict(:String => "string", :Int => "integer", :Int64 => "integer",
                     :Float64 => "number", :Bool => "boolean", :Vector => "array",
-                    :Dict => "object", :TextBlock => "text", :CodeBlock => "text")
+                    :Dict => "object", :TextBlock => "text")
     get(type_map, type_sym, "string")
 end
 
