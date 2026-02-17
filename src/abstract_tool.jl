@@ -43,7 +43,7 @@ abstract type AbstractTool end
 
 
 # Default create_tool using schema - tools can override for custom parsing
-function create_tool(::Type{T}, call::ParsedCall) where T <: AbstractTool
+function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: AbstractTool
     schema = get_tool_schema(T)
 
     # Passive tools (no schema or no params) - set content field if present
@@ -66,7 +66,7 @@ function create_tool(::Type{T}, call::ParsedCall) where T <: AbstractTool
             kwargs[name_sym] = pv.value
         end
     end
-    T(; kwargs...)
+    T(; kwargs..., extra_kwargs...)
 end
 # Execute with ctx - ctx is required, subtype AbstractContext for your runtime needs
 execute(tool::AbstractTool, ctx::AbstractContext) = @warn "Unimplemented execute for $(typeof(tool))"
