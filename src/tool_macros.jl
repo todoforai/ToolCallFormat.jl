@@ -217,6 +217,7 @@ function _generate_passive_tool(sn, tool_name, description, execute_expr=nothing
             _id::UUID = uuid4()
             content::String = ""
             result::String = ""
+            _tool_call_id::Union{String,Nothing} = nothing
         end
 
         ToolCallFormat.toolname(::Type{$sn}) = $tool_name
@@ -242,7 +243,7 @@ end
 #==============================================================================#
 
 function _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
-    base_fields = [(:_id, UUID, :(uuid4())), (:result, String, :(""))]
+    base_fields = [(:_id, UUID, :(uuid4())), (:result, String, :("")), (:_tool_call_id, :(Union{String,Nothing}), :(nothing))]
 
     # Schema params become struct fields
     # User-provided defaults must be esc'd so they resolve in the caller's module, not ToolCallFormat

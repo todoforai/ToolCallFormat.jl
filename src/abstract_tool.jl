@@ -3,7 +3,7 @@
 # Provides the interface that all tools must implement.
 
 export AbstractTool
-export create_tool, execute, get_id, is_cancelled
+export create_tool, execute, get_id, get_tool_call_id, set_tool_call_id!, is_cancelled
 export toolname, get_description, get_tool_schema, get_extra_description
 export result2string, resultimg2base64, resultaudio2base64
 export is_executable, get_cost
@@ -75,6 +75,8 @@ toolname(tool::AbstractTool) = toolname(typeof(tool))
 
 # Optional interface with defaults
 get_id(tool::AbstractTool) = hasproperty(tool, :_id) ? tool._id : uuid4()
+get_tool_call_id(tool::AbstractTool) = hasproperty(tool, :_tool_call_id) ? tool._tool_call_id : nothing
+set_tool_call_id!(tool::AbstractTool, id) = hasproperty(tool, :_tool_call_id) && (tool._tool_call_id = id; true)
 is_cancelled(::AbstractTool) = false
 get_cost(::AbstractTool) = nothing
 
