@@ -86,6 +86,7 @@ Used when generating tool definitions for system prompts.
     type::String           # "string", "number", "boolean", "null", "string[]", "object", "text", "codeblock"
     description::String = ""
     required::Bool = true
+    default::Union{String,Nothing} = nothing  # String representation of default value for display
 end
 
 """

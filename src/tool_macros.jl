@@ -269,8 +269,10 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
     call_arg_exprs = [name for (name, _, _, _) in all_fields]
 
     # Schema only includes user params, NOT internal fields
-    schema_exprs = [:(ParamSchema(name=$(string(name)), type=$type_str, description=$desc, required=$req))
-                    for (name, type_str, desc, req, _) in params]
+    # Include default value as string for display in tool descriptions
+    schema_exprs = [:(ParamSchema(name=$(string(name)), type=$type_str, description=$desc, required=$req,
+                                  default=$(default === nothing ? nothing : :(string($(esc(default)))))))
+                    for (name, type_str, desc, req, default) in params]
 
     result = quote
         mutable struct $sn <: AbstractTool
@@ -291,8 +293,9 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
 
         function ToolCallFormat.get_tool_schema(::Type{$sn})
             (name=$tool_name, description=$description,
-             params=[$([:(( name=$(string(name)), type=$type_str, description=$desc, required=$req ))
-                       for (name, type_str, desc, req, _) in params]...)])
+             params=[$([:(( name=$(string(name)), type=$type_str, description=$desc, required=$req,
+                           default=$(default === nothing ? nothing : :(string($(esc(default))))) ))
+                       for (name, type_str, desc, req, default) in params]...)])
         end
     end
 

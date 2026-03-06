@@ -212,8 +212,9 @@ function generate_tool_definition_concise(schema::ToolSchema)::String
             for param in schema.params
                 opt = param.required ? "" : "?"
                 t = short_type(param.type)
+                default_str = param.default !== nothing ? " = $(param.default)" : ""
                 desc = isempty(param.description) ? "" : " # $(param.description)"
-                write(io, "  $(param.name)$(opt): $(t)$(desc)\n")
+                write(io, "  $(param.name)$(opt): $(t)$(default_str)$(desc)\n")
             end
         end
     end
@@ -245,8 +246,9 @@ function generate_tool_definition_typescript(schema::ToolSchema)::String
             write(io, "\n")
             for param in schema.params
                 opt = param.required ? "" : "?"
+                default_str = param.default !== nothing ? " = $(param.default)" : ""
                 desc = isempty(param.description) ? "" : " // $(param.description)"
-                write(io, "  $(param.name)$(opt): $(param.type),$(desc)\n")
+                write(io, "  $(param.name)$(opt): $(param.type)$(default_str),$(desc)\n")
             end
         end
     end
@@ -274,7 +276,8 @@ function generate_tool_definition_python(schema::ToolSchema)::String
                 if param.required
                     push!(param_strs, "$(param.name): $(type_hint)")
                 else
-                    push!(param_strs, "$(param.name): $(type_hint) = None")
+                    default_str = param.default !== nothing ? param.default : "None"
+                    push!(param_strs, "$(param.name): $(type_hint) = $(default_str)")
                 end
             end
             write(io, join(param_strs, ", "))
@@ -282,7 +285,7 @@ function generate_tool_definition_python(schema::ToolSchema)::String
             write(io, "\n")
             for param in schema.params
                 type_hint = python_type(param.type)
-                opt = param.required ? "" : " = None"
+                opt = param.required ? "" : (param.default !== nothing ? " = $(param.default)" : " = None")
                 desc = isempty(param.description) ? "" : "  # $(param.description)"
                 write(io, "  $(param.name): $(type_hint)$(opt),$(desc)\n")
             end
@@ -316,8 +319,9 @@ function generate_tool_definition_minimal(schema::ToolSchema)::String
             write(io, "\n")
             for param in schema.params
                 opt = param.required ? "" : "?"
+                default_str = param.default !== nothing ? " = $(param.default)" : ""
                 desc = isempty(param.description) ? "" : " # $(param.description)"
-                write(io, "  $(param.name)$(opt): $(param.type)$(desc)\n")
+                write(io, "  $(param.name)$(opt): $(param.type)$(default_str)$(desc)\n")
             end
         end
     end

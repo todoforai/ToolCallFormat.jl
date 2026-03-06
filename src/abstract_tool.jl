@@ -8,6 +8,7 @@ export toolname, get_description, get_tool_schema, get_extra_description
 export result2string, resultimg2base64, resultaudio2base64
 export is_executable, get_cost
 export description_from_schema, permission_pattern
+export get_timeout, DEFAULT_TOOL_TIMEOUT
 
 using UUIDs: UUID, uuid4
 
@@ -80,6 +81,17 @@ set_tool_call_id!(tool::AbstractTool, id) = hasproperty(tool, :_tool_call_id) &&
 is_cancelled(::AbstractTool) = false
 get_cost(::AbstractTool) = nothing
 
+const DEFAULT_TOOL_TIMEOUT = 15.0
+
+"""Get effective timeout for a tool. Uses tool's own timeout field (+ buffer) if present, otherwise 15s default."""
+function get_timeout(tool::AbstractTool)::Float64
+    if hasproperty(tool, :timeout)
+        t = tool.timeout
+        t !== nothing && return Float64(t) + 10.0
+    end
+    return DEFAULT_TOOL_TIMEOUT
+end
+
 get_description(::Type{T}) where T <: AbstractTool = (@warn "Unimplemented get_description for $T"; "unknown tool")
 get_description(tool::AbstractTool) = get_description(typeof(tool))
 
@@ -108,7 +120,8 @@ function description_from_schema(schema)
     tool_schema = ToolSchema(
         name = schema.name,
         description = get(schema, :description, ""),
-        params = [ParamSchema(name=p.name, type=p.type, description=get(p, :description, ""), required=get(p, :required, true))
+        params = [ParamSchema(name=p.name, type=p.type, description=get(p, :description, ""), required=get(p, :required, true),
+                             default=get(p, :default, nothing))
                   for p in get(schema, :params, [])]
     )
     generate_tool_definition(tool_schema)
