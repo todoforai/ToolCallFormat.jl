@@ -54,4 +54,7 @@ include("tool_macros.jl")
 # Registry for @deftool type lookup
 include("registry.jl")
 
+# Universal process output types
+include("process_result.jl")
+
 end # module ToolCallFormat

@@ -102,7 +102,24 @@ get_tool_schema(::Type{<:AbstractTool}) = nothing
 get_tool_schema(tool::AbstractTool) = get_tool_schema(typeof(tool))
 
 result2string(tool::AbstractTool)::String = hasproperty(tool, :result) ? string(tool.result) : ""
-resultimg2base64(::AbstractTool)::String = ""
+
+"""Default: if tool has a process_result field with image blobs, extract them as data URLs."""
+function resultimg2base64(tool::AbstractTool)::Vector{String}
+    hasproperty(tool, :process_result) || return String[]
+    pr = tool.process_result
+    isnothing(pr) && return String[]
+    urls = String[]
+    for b in pr.blobs
+        startswith(b.mime, "image/") || continue
+        if b.data isa String && startswith(b.data, "data:")
+            push!(urls, b.data)
+        else
+            push!(urls, "data:$(b.mime);base64,$(blob_b64(b))")
+        end
+    end
+    urls
+end
+
 resultaudio2base64(::AbstractTool)::String = ""
 
 # Whether this tool can be executed (false for wrapper tools like TextTool, ReasonTool)
