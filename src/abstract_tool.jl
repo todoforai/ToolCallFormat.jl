@@ -101,7 +101,12 @@ get_extra_description(::AbstractTool) = nothing
 get_tool_schema(::Type{<:AbstractTool}) = nothing
 get_tool_schema(tool::AbstractTool) = get_tool_schema(typeof(tool))
 
-result2string(tool::AbstractTool)::String = hasproperty(tool, :result) ? string(tool.result) : ""
+function result2string(tool::AbstractTool)::String
+    hasproperty(tool, :process_result) || return ""
+    pr = tool.process_result
+    isnothing(pr) && return ""
+    result_text(pr)
+end
 
 """Default: if tool has a process_result field with image blobs, extract them as data URLs."""
 function resultimg2base64(tool::AbstractTool)::Vector{String}

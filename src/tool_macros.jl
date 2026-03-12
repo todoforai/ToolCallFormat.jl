@@ -18,7 +18,7 @@ struct TextBlock end
 #==============================================================================#
 
 const VALID_SCHEMA_TYPES = Set(["string", "text", "codeblock", "number", "integer", "boolean", "array", "object"])
-const RESERVED_FIELD_NAMES = Set([:_id, :result])
+const RESERVED_FIELD_NAMES = Set([:_id, :process_result])
 
 #==============================================================================#
 # @deftool - Function-style macro
@@ -150,9 +150,9 @@ macro deftool(args...)
 
     func_name_str = string(func_name)
     # Execute takes (tool, ctx) - ctx is always available in the body
-    # NOTE: tool.result assignment is done OUTSIDE the lambda so that `return` statements
+    # NOTE: tool.process_result assignment is done OUTSIDE the lambda so that `return` statements
     # in the body don't bypass it. The lambda returns the body's value (including via `return`),
-    # and the generated execute() captures and stores it.
+    # and the generated execute() captures and stores it as a ProcessResult.
     execute_lambda = :((tool, ctx) -> $new_body)
 
     sn = esc(struct_name)
@@ -216,7 +216,7 @@ function _generate_passive_tool(sn, tool_name, description, execute_expr=nothing
         @kwdef mutable struct $sn <: AbstractTool
             _id::UUID = uuid4()
             content::String = ""
-            result::String = ""
+            process_result::Union{ProcessResult, Nothing} = nothing
             _tool_call_id::Union{String,Nothing} = nothing
         end
 
@@ -232,7 +232,12 @@ function _generate_passive_tool(sn, tool_name, description, execute_expr=nothing
     end
 
     if execute_expr !== nothing
-        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = (tool.result = string($(esc(execute_expr))(tool, ctx)))))
+        push!(result.args, :(function ToolCallFormat.execute(tool::$sn, ctx::AbstractContext)
+            _ret = $(esc(execute_expr))(tool, ctx)
+            if isnothing(tool.process_result)
+                tool.process_result = _ret isa ProcessResult ? _ret : ProcessResult(string(_ret))
+            end
+        end))
     end
 
     result
@@ -243,7 +248,7 @@ end
 #==============================================================================#
 
 function _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
-    base_fields = [(:_id, UUID, :(uuid4())), (:result, String, :("")), (:_tool_call_id, :(Union{String,Nothing}), :(nothing))]
+    base_fields = [(:_id, UUID, :(uuid4())), (:process_result, :(Union{ProcessResult, Nothing}), :(nothing)), (:_tool_call_id, :(Union{String,Nothing}), :(nothing))]
 
     # Schema params become struct fields
     # User-provided defaults must be esc'd so they resolve in the caller's module, not ToolCallFormat
@@ -300,7 +305,12 @@ function _generate_active_tool(sn, tool_name, description, params, execute_expr,
     end
 
     if execute_expr !== nothing
-        push!(result.args, :(ToolCallFormat.execute(tool::$sn, ctx::AbstractContext) = (tool.result = string($(esc(execute_expr))(tool, ctx)))))
+        push!(result.args, :(function ToolCallFormat.execute(tool::$sn, ctx::AbstractContext)
+            _ret = $(esc(execute_expr))(tool, ctx)
+            if isnothing(tool.process_result)
+                tool.process_result = _ret isa ProcessResult ? _ret : ProcessResult(string(_ret))
+            end
+        end))
     end
 
     result

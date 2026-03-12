@@ -363,7 +363,7 @@ const test_ctx = TestContext()
         # Test tool execution
         tool = create_tool(TestDescTool, parse_tool_call("test_desc(name: \"alice\")\n"))
         execute(tool, test_ctx)
-        @test tool.result == "name=alice, count=5"
+        @test result_text(tool.process_result) == "name=alice, count=5"
 
         # Description-first syntax with various types
         @deftool "Description first test" test_desc_first(
@@ -390,7 +390,7 @@ const test_ctx = TestContext()
         # Test execution
         tool2 = create_tool(TestDescFirstTool, parse_tool_call("test_desc_first(path: \"/foo\")\n"))
         execute(tool2, test_ctx)
-        @test tool2.result == "path=/foo, limit=10"
+        @test result_text(tool2.process_result) == "path=/foo, limit=10"
 
         println("✓ @deftool parameter descriptions tests passed")
     end
