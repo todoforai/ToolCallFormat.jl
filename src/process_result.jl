@@ -2,7 +2,7 @@
 # EVERYTHING is a process. This is the atom-level abstraction.
 
 export Blob, ProcessResult
-export blob_raw, blob_b64, is_error, has_blobs, result_text, decode_data_url
+export blob_raw, blob_b64, blob_data_url, image_data_urls, is_error, has_blobs, result_text, decode_data_url
 
 using Base64
 
@@ -63,6 +63,17 @@ function result_text(r::ProcessResult)::String
         b.mime == "text/plain" && return b.data isa String ? b.data : String(b.data)
     end
     ""
+end
+
+"""Get a data URL string for a Blob. Pass-through if already a data URL, otherwise encode."""
+function blob_data_url(b::Blob)::String
+    b.data isa String && startswith(b.data, "data:") && return b.data
+    "data:$(b.mime);base64,$(blob_b64(b))"
+end
+
+"""Get data URLs for all image blobs in a ProcessResult."""
+function image_data_urls(r::ProcessResult)::Vector{String}
+    [blob_data_url(b) for b in r.blobs if startswith(b.mime, "image/")]
 end
 
 is_error(r::ProcessResult) = r.code != 0

@@ -108,16 +108,7 @@ function resultimg2base64(tool::AbstractTool)::Vector{String}
     hasproperty(tool, :process_result) || return String[]
     pr = tool.process_result
     isnothing(pr) && return String[]
-    urls = String[]
-    for b in pr.blobs
-        startswith(b.mime, "image/") || continue
-        if b.data isa String && startswith(b.data, "data:")
-            push!(urls, b.data)
-        else
-            push!(urls, "data:$(b.mime);base64,$(blob_b64(b))")
-        end
-    end
-    urls
+    image_data_urls(pr)
 end
 
 resultaudio2base64(::AbstractTool)::String = ""
