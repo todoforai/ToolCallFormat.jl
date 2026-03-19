@@ -54,9 +54,11 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
 
     # Active tools - extract params from call.kwargs
     kwargs = Dict{Symbol,Any}()
+    schema_names = Set{String}()
     for p in schema.params
         name_str = p.name isa Symbol ? string(p.name) : p.name
         name_sym = p.name isa Symbol ? p.name : Symbol(p.name)
+        push!(schema_names, name_str)
         pv = get(call.kwargs, name_str, nothing)
 
         if p.type in ("text", "codeblock")
@@ -67,11 +69,19 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
             kwargs[name_sym] = pv.value
         end
     end
+    # Inject context-routing kwargs into internal fields (not in schema, but needed at runtime)
+    for k in ("edge_id", "root_path", "root_paths")
+        k in schema_names && continue
+        haskey(call.kwargs, k) || continue
+        sym = Symbol(k)
+        hasfield(T, sym) || continue
+        kwargs[sym] = call.kwargs[k].value
+    end
     T(; kwargs..., extra_kwargs...)
 end
 # Execute with ctx - ctx is required, subtype AbstractContext for your runtime needs
 execute(tool::AbstractTool, ctx::AbstractContext) = @warn "Unimplemented execute for $(typeof(tool))"
-toolname(::Type{T}) where T <: AbstractTool = (@warn "Unimplemented toolname for $T"; "")
+toolname(::Type{T}) where T <: AbstractTool = error("Unimplemented toolname for $T — define `ToolCallFormat.toolname(::Type{$T})` or `toolname(::$T)`")
 toolname(tool::AbstractTool) = toolname(typeof(tool))
 
 # Optional interface with defaults
