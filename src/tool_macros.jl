@@ -17,7 +17,7 @@ struct TextBlock end
 # Valid schema types
 #==============================================================================#
 
-const VALID_SCHEMA_TYPES = Set(["string", "text", "codeblock", "number", "integer", "boolean", "array", "object"])
+const VALID_SCHEMA_TYPES = Set(["string", "text", "codeblock", "number", "integer", "boolean", "array", "string[]", "object"])
 const RESERVED_FIELD_NAMES = Set([:_id, :process_result])
 
 #==============================================================================#
@@ -438,6 +438,10 @@ function _parse_typed(expr)
 end
 
 function _type_to_schema(type)
+    # Vector{String} -> "string[]", Vector{Any}/Vector -> "array"
+    if type isa Expr && type.head == :curly && type.args[1] == :Vector && length(type.args) >= 2 && type.args[2] == :String
+        return "string[]"
+    end
     type_sym = type isa Symbol ? type : (type isa Expr ? type.args[1] : :String)
     type_map = Dict(:String => "string", :Int => "integer", :Int64 => "integer",
                     :Float64 => "number", :Bool => "boolean", :Vector => "array",
@@ -475,12 +479,15 @@ function _schema_to_julia_type(type_str::String)
     type_str == "number" ? Union{Float64,Nothing} :
     type_str == "integer" ? Union{Int,Nothing} :
     type_str == "boolean" ? Bool :
+    type_str == "string[]" ? Vector{String} :
     type_str == "array" ? Vector{Any} :
     type_str == "object" ? Dict{String,Any} :
     error("Unknown type: $type_str")
 end
 
 function _default_value_expr(T::Type)
-    T == String ? :("") : T == Bool ? :(false) : T == Vector{Any} ? :(Any[]) :
+    T == String ? :("") : T == Bool ? :(false) :
+    T == Vector{String} ? :(String[]) :
+    T == Vector{Any} ? :(Any[]) :
     T == Dict{String,Any} ? :(Dict{String,Any}()) : :(nothing)
 end
