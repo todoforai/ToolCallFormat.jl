@@ -69,8 +69,8 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
             kwargs[name_sym] = pv.value
         end
     end
-    # Inject context-routing kwargs into internal fields (not in schema, but needed at runtime)
-    for k in ("edge_id", "root_path", "root_paths", "no_confirm")
+    # Inject context-routing / approval-injected kwargs into internal fields (not in schema, but needed at runtime)
+    for k in ("edge_id", "root_path", "root_paths", "no_confirm", "answer")
         k in schema_names && continue
         haskey(call.kwargs, k) || continue
         sym = Symbol(k)
