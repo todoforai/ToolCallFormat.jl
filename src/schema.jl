@@ -40,7 +40,7 @@ tool_name(param: value)
 - **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
 - **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `str`, `int`, `bool`, `null`, `list`, `obj`, `text`
+**Types:** `str`, `int`, `bool`, `null`, `str[]` (["a","b"]), `obj[]` ([{k: v}, {k: v}]), `obj` ({k: v}), `text`
 
 **Examples:**
 read_file("/file.txt")
@@ -77,7 +77,7 @@ tool_name(param: value, param2: value2)
 - **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
 - **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object` ({k: v}), `text` (\"\"\" fenced block \"\"\")
+**Types:** `string` ("text"), `number` (42, 3.14), `boolean` (true/false), `null`, `string[]` (["a","b"]), `object[]` ([{k: v}, {k: v}]), `object` ({k: v}), `text` (\"\"\" fenced block \"\"\")
 
 **Examples:**
 read_file("/file.txt")
@@ -114,7 +114,7 @@ tool_name(param=value, param2=value2)
 - **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
 - **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `dict` ({k: v}), `text` (\"\"\" fenced block \"\"\")
+**Types:** `str` ("text"), `int`/`float` (42, 3.14), `bool` (True/False), `None`, `list` (["a","b"]), `list[dict]` ([{k: v}, {k: v}]), `dict` ({k: v}), `text` (\"\"\" fenced block \"\"\")
 
 **Examples:**
 read_file("/file.txt")
@@ -145,7 +145,7 @@ tool_name(param: value, param2: value2)
 - **Text blocks** use triple-quote fences (\"\"\"..\"\"\", N >= 3 quotes). Content starts on the line after the opening fence. If your text contains \"\"\", use \"\"\"\" (4 quotes) as the fence, and so on.
 - **Text block content** is passed exactly as-is — nothing is stripped or modified.
 
-**Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object`, `text`
+**Types:** `string`, `int`, `bool` (true/false), `null`, `string[]`, `object[]` ([{k: v}, {k: v}]), `object`, `text`
 
 **Examples:**
 read_file("/file.txt")
@@ -377,6 +377,7 @@ function python_type(t::String)::String
         "null" => "None",
         "string[]" => "list[str]",
         "object" => "dict",
+        "object[]" => "list[dict]",
         "code" => "text",
         "codeblock" => "text",
         "text" => "text"
@@ -394,6 +395,7 @@ function short_type(t::String)::String
         "null" => "null",
         "string[]" => "str[]",
         "object" => "obj",
+        "object[]" => "obj[]",
         "code" => "text",
         "codeblock" => "text",
         "text" => "text"
