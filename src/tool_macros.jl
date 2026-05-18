@@ -156,13 +156,7 @@ macro deftool(args...)
     execute_lambda = :((tool, ctx) -> $new_body)
 
     sn = esc(struct_name)
-    is_passive = isempty(params_for_gen) && isempty(internal_for_gen)
-
-    if is_passive
-        _generate_passive_tool(sn, func_name_str, description, execute_lambda)
-    else
-        _generate_active_tool(sn, func_name_str, description, params_for_gen, execute_lambda, internal_for_gen)
-    end
+    _generate_tool(sn, func_name_str, description, params_for_gen, execute_lambda, internal_for_gen)
 end
 
 """Parse internal fields from tuple expression: (name::Type=default, ...)"""
@@ -208,46 +202,10 @@ function _looks_like_internal_field(expr)
 end
 
 #==============================================================================#
-# Passive tool generation (no params)
+# Tool generation
 #==============================================================================#
 
-function _generate_passive_tool(sn, tool_name, description, execute_expr=nothing)
-    result = quote
-        @kwdef mutable struct $sn <: AbstractTool
-            _id::UUID = uuid4()
-            content::String = ""
-            process_result::Union{ProcessResult, Nothing} = nothing
-            _tool_call_id::Union{String,Nothing} = nothing
-        end
-
-        ToolCallFormat.toolname(::Type{$sn}) = $tool_name
-        ToolCallFormat.toolname(::$sn) = $tool_name
-
-        function ToolCallFormat.get_description(::Type{$sn}, style::CallStyle=get_default_call_style())
-            generate_tool_definition(ToolSchema(name=$tool_name, description=$description, params=ParamSchema[]); style=style)
-        end
-        ToolCallFormat.get_description(t::$sn, style::CallStyle=get_default_call_style()) = ToolCallFormat.get_description(typeof(t), style)
-
-        ToolCallFormat.get_tool_schema(::Type{$sn}) = (name=$tool_name, description=$description, params=[])
-    end
-
-    if execute_expr !== nothing
-        push!(result.args, :(function ToolCallFormat.execute(tool::$sn, ctx::AbstractContext)
-            _ret = $(esc(execute_expr))(tool, ctx)
-            if isnothing(tool.process_result)
-                tool.process_result = _ret isa ProcessResult ? _ret : ProcessResult(string(_ret))
-            end
-        end))
-    end
-
-    result
-end
-
-#==============================================================================#
-# Active tool generation (with params)
-#==============================================================================#
-
-function _generate_active_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
+function _generate_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
     base_fields = [(:_id, UUID, :(uuid4())), (:process_result, :(Union{ProcessResult, Nothing}), :(nothing)), (:_tool_call_id, :(Union{String,Nothing}), :(nothing))]
 
     # Schema params become struct fields
