@@ -206,30 +206,23 @@ end
 #==============================================================================#
 
 function _generate_tool(sn, tool_name, description, params, execute_expr, internal_fields=[])
-    base_fields = [(:_id, UUID, :(uuid4())), (:process_result, :(Union{ProcessResult, Nothing}), :(nothing)), (:_tool_call_id, :(Union{String,Nothing}), :(nothing))]
+    # All struct fields as (name, type_expr, default_expr).
+    # Schema-param types are resolved by us (Base types) -> no esc.
+    # Internal-field types come from the caller -> esc so they resolve in caller's module.
+    # User-provided defaults are also esc'd (caller's identifiers).
+    fields = vcat(
+        [(:_id, UUID, :(uuid4())),
+         (:process_result, :(Union{ProcessResult, Nothing}), :(nothing)),
+         (:_tool_call_id, :(Union{String,Nothing}), :(nothing))],
+        [(name, _schema_to_julia_type(type_str),
+          default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : esc(default))
+         for (name, type_str, _, _, default) in params],
+        [(name, esc(type),
+          default === nothing ? _default_value_expr_for_type(type) : esc(default))
+         for (name, type, default) in internal_fields],
+    )
 
-    # Schema params become struct fields
-    # User-provided defaults must be esc'd so they resolve in the caller's module, not ToolCallFormat
-    user_fields = [(name, _schema_to_julia_type(type_str), default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : esc(default))
-                   for (name, type_str, _, _, default) in params]
-
-    # Internal fields also become struct fields (but NOT in schema)
-    # Mark them with :internal tag so we know to escape the type
-    # User-provided defaults must be esc'd so they resolve in the caller's module
-    internal_struct_fields = [(name, type, default === nothing ? _default_value_expr_for_type(type) : esc(default), :internal)
-                              for (name, type, default) in internal_fields]
-
-    # Tag base and user fields as :builtin (types don't need escaping)
-    tagged_base = [(f..., :builtin) for f in base_fields]
-    tagged_user = [(f..., :builtin) for f in user_fields]
-
-    all_fields = vcat(tagged_base, tagged_user, internal_struct_fields)
-
-    # For internal fields, escape the type so it resolves in caller's module
-    struct_field_exprs = [tag == :internal ? :($name::$(esc(jl_type))) : :($name::$jl_type)
-                          for (name, jl_type, _, tag) in all_fields]
-    kwarg_exprs = [Expr(:kw, name, def_expr) for (name, _, def_expr, _) in all_fields]
-    call_arg_exprs = [name for (name, _, _, _) in all_fields]
+    struct_field_exprs = [Expr(:(=), :($name::$T), def) for (name, T, def) in fields]
 
     # Schema only includes user params, NOT internal fields
     # Include default value as string for display in tool descriptions
@@ -238,12 +231,8 @@ function _generate_tool(sn, tool_name, description, params, execute_expr, intern
                     for (name, type_str, desc, req, default) in params]
 
     result = quote
-        mutable struct $sn <: AbstractTool
+        Base.@kwdef mutable struct $sn <: AbstractTool
             $(struct_field_exprs...)
-        end
-
-        function $sn(; $(kwarg_exprs...))
-            $sn($(call_arg_exprs...))
         end
 
         ToolCallFormat.toolname(::Type{$sn}) = $tool_name
