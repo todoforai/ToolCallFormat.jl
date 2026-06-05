@@ -70,7 +70,7 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
         end
     end
     # Inject context-routing / approval-injected kwargs into internal fields (not in schema, but needed at runtime)
-    for k in ("edge_id", "root_path", "root_paths", "no_confirm", "answer")
+    for k in ("edge_id", "root_path", "root_paths", "no_confirm", "answer", "logged_in", "user")
         k in schema_names && continue
         haskey(call.kwargs, k) || continue
         sym = Symbol(k)
