@@ -245,7 +245,7 @@ function _generate_tool(sn, tool_name, description, params, execute_expr, intern
 
         function ToolCallFormat.get_tool_schema(::Type{$sn})
             (name=$tool_name, description=$description,
-             params=[$([:(( name=$(string(name)), type=$type_str, description=$desc, required=$req,
+             params=[$([:(( name=$(string(name)), type=$type_str, description=$(desc isa String ? desc : esc(desc)), required=$req,
                            default=$(default === nothing ? nothing : :(string($(esc(default))))) ))
                        for (name, type_str, desc, req, default) in params]...)])
         end
@@ -349,8 +349,9 @@ function _parse_param(expr, is_positional)
         first_arg = expr.args[2]
         second_arg = expr.args[3]
 
-        # "desc" => x::Type (description first, no default)
-        if first_arg isa String
+        # "desc" => x::Type (description first, no default).
+        # desc may be a string literal, a const reference, or an interpolation expr.
+        if !_is_typed(first_arg)
             name, type = _parse_typed(second_arg)
             return (name=name, type=type, required=is_positional, default=nothing, desc=first_arg)
         end
@@ -372,6 +373,10 @@ function _parse_param(expr, is_positional)
 
     error("@deftool: cannot parse param: $expr")
 end
+
+"""True if expr is a typed param form `name::Type` (so a `=>` first-arg is the
+typed part, i.e. legacy `param::Type => desc`), false if it's a description."""
+_is_typed(expr) = expr isa Expr && expr.head == :(::)
 
 """Extract (name, type) from `name::Type`. Unwraps `Union{T, Nothing}` to just `T`."""
 function _parse_typed(expr)
