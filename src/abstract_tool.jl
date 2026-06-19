@@ -64,8 +64,12 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
         if p.type in ("text", "codeblock")
             # Text/codeblock can come from kwargs or fall back to call.content
             kwargs[name_sym] = pv !== nothing ? pv.value : call.content
-        elseif pv !== nothing
-            # Only set if present - let constructor handle defaults
+        elseif pv !== nothing && pv.value !== nothing
+            # Only set if present and non-null - let constructor handle defaults.
+            # An explicit JSON `null` (pv.value === nothing) is treated like a
+            # missing key so the field default applies, instead of forcing
+            # `nothing` into a non-nullable field (e.g. `timeout::Int`) and
+            # throwing `Cannot convert Nothing to Int64`.
             kwargs[name_sym] = pv.value
         end
     end
