@@ -52,6 +52,36 @@ Base.showerror(io::IO, e::ToolArgumentError) = print(io, e.msg)
 export ToolArgumentError
 
 
+# Some native tool-call providers occasionally stringify structured arguments
+# even when the JSON schema says the field is an array/object. Be forgiving for
+# container-typed fields by parsing a JSON/tool-call-like string (the parser
+# accepts standard JSON arrays/objects as well as the concise syntax) before the
+# final typed conversion. Scalar strings stay strings.
+_wants_stringified_container(ftype::Type, s::AbstractString) = begin
+    stripped = strip(String(s))
+    isempty(stripped) && return false
+    ((ftype <: AbstractVector) && startswith(stripped, "[")) ||
+    ((ftype <: AbstractDict) && startswith(stripped, "{"))
+end
+
+function _parse_stringified_container(s::AbstractString)
+    text = strip(String(s))
+    ps = ParserState(text)
+    parsed = parse_value!(ps)
+    parsed === nothing && error("not a valid JSON-like array/object")
+    skip_whitespace!(ps)
+    is_eof(ps) || error("trailing text after JSON-like value")
+    parsed.value
+end
+
+function _coerce_tool_arg(ftype::Type, val)
+    val isa ftype && return val
+    candidate = (_wants_stringified_container(ftype, val isa AbstractString ? val : "") ?
+                 _parse_stringified_container(val) : val)
+    candidate isa ftype && return candidate
+    convert(ftype, candidate)
+end
+
 # Default create_tool using schema - tools can override for custom parsing
 function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: AbstractTool
     schema = get_tool_schema(T)
@@ -100,7 +130,7 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
         ftype = fieldtype(T, sym)
         val isa ftype && continue
         try
-            kwargs[sym] = convert(ftype, val)
+            kwargs[sym] = _coerce_tool_arg(ftype, val)
         catch e
             throw(ToolArgumentError(
                 "tool $(toolname(T)): argument \"$sym\" has wrong type — expected $ftype, got $(typeof(val)) ($(sprint(showerror, e)))"))

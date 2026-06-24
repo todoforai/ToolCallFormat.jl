@@ -395,6 +395,24 @@ const test_ctx = TestContext()
         println("✓ @deftool parameter descriptions tests passed")
     end
 
+    @testset "Structured argument coercion" begin
+        @deftool "Object-array coercion test" test_object_array(
+            "Structured rows" => rows::Vector{Dict{String,Any}}
+        ) = string(length(rows))
+
+        json_rows = "[{\"id\":\"one\",\"options\":[{\"label\":\"A\",\"description\":\"desc\"}]}]"
+        call = ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue(json_rows)))
+        tool = create_tool(TestObjectArrayTool, call)
+        @test tool.rows isa Vector{Dict{String,Any}}
+        @test tool.rows[1]["id"] == "one"
+        @test tool.rows[1]["options"][1]["label"] == "A"
+
+        bad_call = ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue("not json")))
+        @test_throws ToolArgumentError create_tool(TestObjectArrayTool, bad_call)
+
+        println("✓ Structured argument coercion tests passed")
+    end
+
     @testset "Schema Generation" begin
         schema = ToolSchema(
             name="read_file",
