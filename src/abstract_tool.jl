@@ -42,6 +42,15 @@ Optional:
 """
 abstract type AbstractTool end
 
+"""Thrown when an LLM-supplied tool argument can't be coerced to the field's
+declared type. Caught at the extraction layer to produce a retryable ErrorTool,
+so it stays distinct from any `ArgumentError` a tool constructor may throw."""
+struct ToolArgumentError <: Exception
+    msg::String
+end
+Base.showerror(io::IO, e::ToolArgumentError) = print(io, e.msg)
+export ToolArgumentError
+
 
 # Default create_tool using schema - tools can override for custom parsing
 function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: AbstractTool
@@ -81,6 +90,23 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
         hasfield(T, sym) || continue
         kwargs[sym] = call.kwargs[k].value
     end
+
+    # Coerce each value to its declared field type up front. The @kwdef constructor
+    # would `convert` anyway, but a mismatch there throws a raw `MethodError`
+    # (e.g. a model passing a String for a `Vector{Dict{String,Any}}` field) that
+    # callers can't turn into a useful message. Convert here so a bad LLM argument
+    # becomes a clear, catchable `ToolArgumentError` naming the field and expected type.
+    for (sym, val) in kwargs
+        ftype = fieldtype(T, sym)
+        val isa ftype && continue
+        try
+            kwargs[sym] = convert(ftype, val)
+        catch e
+            throw(ToolArgumentError(
+                "tool $(toolname(T)): argument \"$sym\" has wrong type — expected $ftype, got $(typeof(val)) ($(sprint(showerror, e)))"))
+        end
+    end
+
     T(; kwargs..., extra_kwargs...)
 end
 # Execute with ctx - ctx is required, subtype AbstractContext for your runtime needs
