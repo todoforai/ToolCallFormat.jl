@@ -57,10 +57,12 @@ export ToolArgumentError
 # container-typed fields by parsing a JSON/tool-call-like string (the parser
 # accepts standard JSON arrays/objects as well as the concise syntax) before the
 # final typed conversion. Scalar strings stay strings.
+# A Vector field also accepts a stringified lone object (`{...}`): models often
+# send a single element where an array is expected, so we wrap it below.
 _wants_stringified_container(ftype::Type, s::AbstractString) = begin
     stripped = strip(String(s))
     isempty(stripped) && return false
-    ((ftype <: AbstractVector) && startswith(stripped, "[")) ||
+    ((ftype <: AbstractVector) && (startswith(stripped, "[") || startswith(stripped, "{"))) ||
     ((ftype <: AbstractDict) && startswith(stripped, "{"))
 end
 
@@ -79,6 +81,9 @@ function _coerce_tool_arg(ftype::Type, val)
     candidate = (_wants_stringified_container(ftype, val isa AbstractString ? val : "") ?
                  _parse_stringified_container(val) : val)
     candidate isa ftype && return candidate
+    # Vector field but a single element was supplied (e.g. a lone `{...}` object
+    # where the model should have sent `[{...}]`) — wrap it into a 1-element vector.
+    ftype <: AbstractVector && !(candidate isa AbstractVector) && (candidate = [candidate])
     convert(ftype, candidate)
 end
 

@@ -407,6 +407,14 @@ const test_ctx = TestContext()
         @test tool.rows[1]["id"] == "one"
         @test tool.rows[1]["options"][1]["label"] == "A"
 
+        # Lone object where an array is expected: wrapped into a 1-element vector.
+        lone_obj = "{\"id\":\"one\",\"options\":[{\"label\":\"A\",\"description\":\"desc\"}]}"
+        lone_call = ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue(lone_obj)))
+        lone_tool = create_tool(TestObjectArrayTool, lone_call)
+        @test lone_tool.rows isa Vector{Dict{String,Any}}
+        @test length(lone_tool.rows) == 1
+        @test lone_tool.rows[1]["id"] == "one"
+
         bad_call = ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue("not json")))
         @test_throws ToolArgumentError create_tool(TestObjectArrayTool, bad_call)
 
