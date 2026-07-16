@@ -78,12 +78,15 @@ end
 
 function _coerce_tool_arg(ftype::Type, val)
     val isa ftype && return val
-    candidate = (_wants_stringified_container(ftype, val isa AbstractString ? val : "") ?
-                 _parse_stringified_container(val) : val)
+    parsed_from_string = val isa AbstractString && _wants_stringified_container(ftype, val)
+    candidate = parsed_from_string ? _parse_stringified_container(val) : val
     candidate isa ftype && return candidate
-    # Vector field but a single element was supplied (e.g. a lone `{...}` object
-    # where the model should have sent `[{...}]`) — wrap it into a 1-element vector.
-    ftype <: AbstractVector && !(candidate isa AbstractVector) && (candidate = [candidate])
+    # Stringified lone `{...}` object for a Vector field (model should have sent
+    # `[{...}]`) — wrap the parsed object into a 1-element vector. Only for the
+    # parsed-dict case so arbitrary scalars still fail conversion.
+    if parsed_from_string && ftype <: AbstractVector && candidate isa AbstractDict
+        candidate = [candidate]
+    end
     convert(ftype, candidate)
 end
 

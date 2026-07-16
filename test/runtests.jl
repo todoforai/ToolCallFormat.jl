@@ -418,6 +418,29 @@ const test_ctx = TestContext()
         bad_call = ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue("not json")))
         @test_throws ToolArgumentError create_tool(TestObjectArrayTool, bad_call)
 
+        # Regressions: object-looking text stays literal for String fields,
+        # parses for Dict fields, and arbitrary scalars still fail for vectors.
+        @deftool "String coercion regression" test_string_arg(
+            "Literal value" => value::String
+        ) = value
+        object_text = "{\"id\":\"one\"}"
+        string_tool = create_tool(TestStringArgTool,
+            ParsedCall(name="test_string_arg", kwargs=Dict("value" => ParsedValue(object_text))))
+        @test string_tool.value == object_text
+
+        @deftool "Dict coercion regression" test_dict_arg(
+            "Object value" => value::Dict{String,Any}
+        ) = string(value)
+        dict_tool = create_tool(TestDictArgTool,
+            ParsedCall(name="test_dict_arg", kwargs=Dict("value" => ParsedValue(object_text))))
+        @test dict_tool.value == Dict{String,Any}("id" => "one")
+
+        @deftool "Generic array coercion" test_any_array(
+            "Values" => values::Vector{Any}
+        ) = string(values)
+        bad_scalar = ParsedCall(name="test_any_array", kwargs=Dict("values" => ParsedValue("not json")))
+        @test_throws ToolArgumentError create_tool(TestAnyArrayTool, bad_scalar)
+
         println("✓ Structured argument coercion tests passed")
     end
 
