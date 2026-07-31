@@ -11,6 +11,7 @@ export description_from_schema, permission_pattern
 export get_timeout, DEFAULT_TOOL_TIMEOUT
 
 using UUIDs: UUID, uuid4
+using JSON3
 
 """
 Tool execution flow:
@@ -66,15 +67,16 @@ _wants_stringified_container(ftype::Type, s::AbstractString) = begin
     ((ftype <: AbstractDict) && startswith(stripped, "{"))
 end
 
-function _parse_stringified_container(s::AbstractString)
-    text = strip(String(s))
-    ps = ParserState(text)
-    parsed = parse_value!(ps)
-    parsed === nothing && error("not a valid JSON-like array/object")
-    skip_whitespace!(ps)
-    is_eof(ps) || error("trailing text after JSON-like value")
-    parsed.value
-end
+# A double-stringified container field is plain JSON: the model JSON-encoded a
+# value that was already meant to be a JSON array/object. Decode it with the same
+# real JSON parser (JSON3) that decoded the surrounding tool-call arguments, so
+# `\uXXXX`, `\/`, exponents etc. all just work. JSON3 returns immutable views, so
+# copy into the plain Dict/Vector that field conversion expects.
+_json_to_plain(x::JSON3.Object) = Dict{String,Any}(String(k) => _json_to_plain(v) for (k, v) in x)
+_json_to_plain(x::JSON3.Array)  = Any[_json_to_plain(v) for v in x]
+_json_to_plain(x) = x
+
+_parse_stringified_container(s::AbstractString) = _json_to_plain(JSON3.read(strip(String(s)), Any))
 
 function _coerce_tool_arg(ftype::Type, val)
     val isa ftype && return val

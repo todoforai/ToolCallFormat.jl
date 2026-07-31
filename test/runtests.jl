@@ -30,230 +30,6 @@ const test_ctx = TestContext()
         println("✓ Types tests passed")
     end
 
-    @testset "Parser" begin
-        # Simple call
-        call = parse_tool_call("read_file(path: \"/test.txt\")\n")
-        @test call !== nothing
-        @test call.name == "read_file"
-        @test call.kwargs["path"].value == "/test.txt"
-
-        # Multiple params
-        call2 = parse_tool_call("edit(file: \"/a.txt\", old: \"hello\", new: \"world\")\n")
-        @test call2 !== nothing
-        @test call2.name == "edit"
-        @test call2.kwargs["old"].value == "hello"
-
-        # Numbers and booleans
-        call3 = parse_tool_call("config(count: 42, enabled: true, ratio: 3.14)\n")
-        @test call3 !== nothing
-        @test call3.kwargs["count"].value == 42
-        @test call3.kwargs["enabled"].value == true
-        @test call3.kwargs["ratio"].value == 3.14
-
-        # Content block
-        call4 = parse_tool_call("shell(lang: \"sh\") ```\nls -la\n```")
-        @test call4 !== nothing
-        @test call4.name == "shell"
-        @test occursin("ls -la", call4.content)
-
-        # Invalid (trailing text)
-        call5 = parse_tool_call("read_file(path: \"/test\") some text")
-        @test call5 === nothing
-
-        # Inline codeblock as named parameter (single line)
-        call6 = parse_tool_call("create(path: \"/tmp/hello.txt\", content: ```Hello, world!```)\n")
-        @test call6 !== nothing
-        @test call6.name == "create"
-        @test call6.kwargs["path"].value == "/tmp/hello.txt"
-        @test call6.kwargs["content"].value == "Hello, world!"
-
-        # Inline codeblock multi-line (no language specifier stripping)
-        call7 = parse_tool_call("create(path: \"/tmp/test.py\", content: ```python\nprint('hello')\n```)\n")
-        @test call7 !== nothing
-        @test call7.name == "create"
-        @test call7.kwargs["content"].value == "python\nprint('hello')\n"
-
-        # Content on first line, closing backticks on next line
-        call7b = parse_tool_call("create(path: \"/tmp/hello.txt\", content: ```Hello, world!\n```)\n")
-        @test call7b !== nothing
-        @test call7b.kwargs["content"].value == "Hello, world!\n"
-
-        # Multi-line codeblock content (newlines are passed as-is)
-        call8 = parse_tool_call("bash(script: ```\necho hello\necho world\n```)\n")
-        @test call8 !== nothing
-        @test call8.kwargs["script"].value == "\necho hello\necho world\n"
-
-        # Positional arguments - single string
-        call9 = parse_tool_call("read_file(\"/test.txt\")\n")
-        @test call9 !== nothing
-        @test call9.name == "read_file"
-        @test call9.kwargs["_0"].value == "/test.txt"
-
-        # Positional arguments - multiple values
-        call10 = parse_tool_call("config(42, true, \"hello\")\n")
-        @test call10 !== nothing
-        @test call10.kwargs["_0"].value == 42
-        @test call10.kwargs["_1"].value == true
-        @test call10.kwargs["_2"].value == "hello"
-
-        # Mixed positional and named arguments
-        call11 = parse_tool_call("edit(\"/file.txt\", old: \"hello\", new: \"world\")\n")
-        @test call11 !== nothing
-        @test call11.kwargs["_0"].value == "/file.txt"
-        @test call11.kwargs["old"].value == "hello"
-        @test call11.kwargs["new"].value == "world"
-
-        # Positional codeblock
-        call12 = parse_tool_call("bash(```echo hello```)\n")
-        @test call12 !== nothing
-        @test call12.kwargs["_0"].value == "echo hello"
-
-        # --- Variable-length backtick fences ---
-
-        # 4-backtick fence as parameter value
-        call_4bt = parse_tool_call("bash(cmd: ````echo \"use ```code``` here\"````)\n")
-        @test call_4bt !== nothing
-        @test call_4bt.kwargs["cmd"].value == "echo \"use ```code``` here\""
-
-        # 5-backtick fence
-        call_5bt = parse_tool_call("bash(cmd: `````contains ```` and ``` inside`````)\n")
-        @test call_5bt !== nothing
-        @test call_5bt.kwargs["cmd"].value == "contains ```` and ``` inside"
-
-        # Content block with 4-backtick fence
-        call_4bt_content = parse_tool_call("shell(lang: \"sh\") ````\necho ```hello```\n````")
-        @test call_4bt_content !== nothing
-        @test call_4bt_content.content == "\necho ```hello```\n"
-
-        # Backward compat: 3-backtick still works
-        call_3bt = parse_tool_call("bash(cmd: ```simple```)\n")
-        @test call_3bt !== nothing
-        @test call_3bt.kwargs["cmd"].value == "simple"
-
-        # "Exactly N" rule: content with N-1 backticks doesn't close a N-fence
-        call_exact = parse_tool_call("bash(cmd: ````has ``` but not close````)\n")
-        @test call_exact !== nothing
-        @test call_exact.kwargs["cmd"].value == "has ``` but not close"
-
-        # has_valid_line_ending with 4-backtick content block
-        call_4bt_ending = parse_tool_call("shell(lang: \"sh\") ````\ncode\n````")
-        @test call_4bt_ending !== nothing
-
-        # --- Triple-quote text blocks ---
-
-        # Inline triple-quote as named parameter
-        call_tq1 = parse_tool_call("create(path: \"/tmp/hello.txt\", content: \"\"\"Hello, world!\"\"\")\n")
-        @test call_tq1 !== nothing
-        @test call_tq1.name == "create"
-        @test call_tq1.kwargs["content"].value == "Hello, world!"
-
-        # Multi-line triple-quote (exact pass-through, newlines preserved as-is)
-        call_tq2 = parse_tool_call("create(path: \"/tmp/test.py\", content: \"\"\"\nprint('hello')\n\"\"\")\n")
-        @test call_tq2 !== nothing
-        @test call_tq2.kwargs["content"].value == "\nprint('hello')\n"
-
-        # Triple-quote with multiple lines
-        call_tq3 = parse_tool_call("bash(script: \"\"\"\necho hello\necho world\n\"\"\")\n")
-        @test call_tq3 !== nothing
-        @test call_tq3.kwargs["script"].value == "\necho hello\necho world\n"
-
-        # Positional triple-quote
-        call_tq4 = parse_tool_call("bash(\"\"\"echo hello\"\"\")\n")
-        @test call_tq4 !== nothing
-        @test call_tq4.kwargs["_0"].value == "echo hello"
-
-        # 4-quote fence for content containing """
-        call_tq5 = parse_tool_call("bash(cmd: \"\"\"\"has \"\"\" inside\"\"\"\")\n")
-        @test call_tq5 !== nothing
-        @test call_tq5.kwargs["cmd"].value == "has \"\"\" inside"
-
-        println("✓ Parser tests passed")
-    end
-
-    @testset "StreamProcessor" begin
-        # Basic text streaming
-        texts = String[]
-        sp = StreamProcessor(
-            known_tools = Set([:read_file]),
-            emit_text = s -> push!(texts, s)
-        )
-        process_chunk!(sp, "Hello world\n")
-        finalize!(sp)
-        @test join(texts) == "Hello world\n"
-
-        # Tool detection at line start
-        tools = ParsedCall[]
-        sp2 = StreamProcessor(
-            known_tools = Set([:read_file]),
-            emit_tool = c -> push!(tools, c)
-        )
-        process_chunk!(sp2, "Some text\nread_file(path: \"/test\")\nMore text")
-        finalize!(sp2)
-        @test length(tools) == 1
-        @test tools[1].name == "read_file"
-
-        # Inline NOT detected
-        tools2 = ParsedCall[]
-        sp3 = StreamProcessor(
-            known_tools = Set([:read_file]),
-            emit_tool = c -> push!(tools2, c)
-        )
-        process_chunk!(sp3, "use read_file(path: \"/test\") to read")
-        finalize!(sp3)
-        @test length(tools2) == 0
-
-        # Multiple tool calls
-        tools3 = ParsedCall[]
-        sp4 = StreamProcessor(
-            known_tools = Set([:read_file, :shell]),
-            emit_tool = c -> push!(tools3, c)
-        )
-        process_chunk!(sp4, "read_file(path: \"/a\")\nshell(cmd: \"ls\")\n")
-        finalize!(sp4)
-        @test length(tools3) == 2
-
-        # --- Variable-length backtick fences in StreamProcessor ---
-
-        # 4-backtick fence inside args
-        tools_4bt = ParsedCall[]
-        sp_4bt = StreamProcessor(
-            known_tools = Set([:bash]),
-            emit_tool = c -> push!(tools_4bt, c)
-        )
-        process_chunk!(sp_4bt, "bash(cmd: ````has ``` inside````)\n")
-        finalize!(sp_4bt)
-        @test length(tools_4bt) == 1
-        @test tools_4bt[1].kwargs["cmd"].value == "has ``` inside"
-
-        # 4-backtick content block (streaming chunks)
-        tools_4bt_content = ParsedCall[]
-        sp_4bt_c = StreamProcessor(
-            known_tools = Set([:shell]),
-            emit_tool = c -> push!(tools_4bt_content, c)
-        )
-        # Send in multiple chunks to test streaming
-        process_chunk!(sp_4bt_c, "shell(lang: \"sh\") ``")
-        process_chunk!(sp_4bt_c, "``\necho ```hello")
-        process_chunk!(sp_4bt_c, "```\n````")
-        process_chunk!(sp_4bt_c, "\nmore text")
-        finalize!(sp_4bt_c)
-        @test length(tools_4bt_content) == 1
-        @test tools_4bt_content[1].content == "\necho ```hello```\n"
-
-        # 3-backtick backward compat in stream processor
-        tools_3bt = ParsedCall[]
-        sp_3bt = StreamProcessor(
-            known_tools = Set([:bash]),
-            emit_tool = c -> push!(tools_3bt, c)
-        )
-        process_chunk!(sp_3bt, "bash(cmd: ```simple```)\n")
-        finalize!(sp_3bt)
-        @test length(tools_3bt) == 1
-        @test tools_3bt[1].kwargs["cmd"].value == "simple"
-
-        println("✓ StreamProcessor tests passed")
-    end
-
     @testset "Serializer" begin
         # Value serialization
         @test serialize_value("hello") == "\"hello\""
@@ -270,9 +46,9 @@ const test_ctx = TestContext()
         @test serialize_tool_call("test", Dict("a" => 1)) == "test(a: 1)"
         @test serialize_tool_call("test", Dict("a" => 1); style=PYTHON) == "test(a=1)"
 
-        # ParsedCall round-trip
-        original = "read_file(path: \"/test.txt\")\n"
-        call = parse_tool_call(original)
+        # ParsedCall serialization
+        call = ParsedCall(name="read_file",
+            kwargs=Dict("path" => ParsedValue(value="/test.txt", raw="\"/test.txt\"")))
         serialized = serialize_parsed_call(call)
         @test serialized == "read_file(path: \"/test.txt\")"
 
@@ -300,12 +76,11 @@ const test_ctx = TestContext()
         @test startswith(cb2, "````\n")
         @test endswith(cb2, "````")
 
-        # serialize_tool_call_with_content: round-trip with backtick content
+        # serialize_tool_call_with_content: content fenced with 4 backticks (content has ```)
         content_with_bt = "echo ```hello```"
         serialized_tc = serialize_tool_call_with_content("shell", Dict("lang" => "sh"), content_with_bt)
-        reparsed = parse_tool_call(serialized_tc)
-        @test reparsed !== nothing
-        @test reparsed.content == "\n" * content_with_bt * "\n"
+        @test occursin("shell(lang: \"sh\")", serialized_tc)
+        @test occursin("````\n" * content_with_bt * "\n````", serialized_tc)
 
         # --- Triple-quote text value serialization ---
 
@@ -328,11 +103,9 @@ const test_ctx = TestContext()
         @test startswith(tv2, "\"\"\"\"\n")
         @test endswith(tv2, "\"\"\"\"")
 
-        # serialize_text_value round-trip (content is exact pass-through, includes leading \n from fence)
+        # serialize_text_value: exact content pass-through inside a triple-quote fence
         tv3 = serialize_text_value("Hello, world!")
-        call_rt = parse_tool_call("create(path: \"/tmp/test.txt\", content: $(tv3))\n")
-        @test call_rt !== nothing
-        @test call_rt.kwargs["content"].value == "\nHello, world!"
+        @test tv3 == "\"\"\"\nHello, world!\"\"\""
 
         println("✓ Serializer tests passed")
     end
@@ -361,7 +134,8 @@ const test_ctx = TestContext()
         @test p2.required == false
 
         # Test tool execution
-        tool = create_tool(TestDescTool, parse_tool_call("test_desc(name: \"alice\")\n"))
+        tool = create_tool(TestDescTool, ParsedCall(name="test_desc",
+            kwargs=Dict("name" => ParsedValue(value="alice", raw="\"alice\""))))
         execute(tool, test_ctx)
         @test result_text(tool.process_result) == "name=alice, count=5"
 
@@ -388,7 +162,8 @@ const test_ctx = TestContext()
         @test p2.required == false
 
         # Test execution
-        tool2 = create_tool(TestDescFirstTool, parse_tool_call("test_desc_first(path: \"/foo\")\n"))
+        tool2 = create_tool(TestDescFirstTool, ParsedCall(name="test_desc_first",
+            kwargs=Dict("path" => ParsedValue(value="/foo", raw="\"/foo\""))))
         execute(tool2, test_ctx)
         @test result_text(tool2.process_result) == "path=/foo, limit=10"
 
@@ -417,6 +192,16 @@ const test_ctx = TestContext()
 
         bad_call = ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue("not json")))
         @test_throws ToolArgumentError create_tool(TestObjectArrayTool, bad_call)
+
+        # Real JSON escapes/numbers a hand-rolled parser used to botch: \uXXXX
+        # (incl. surrogate pairs), \/, and exponent numbers — all handled by JSON3.
+        json_escapes = "[{\"id\":\"caf\\u00e9\",\"emoji\":\"\\ud83d\\ude00\",\"path\":\"a\\/b\",\"n\":1e3}]"
+        esc_tool = create_tool(TestObjectArrayTool,
+            ParsedCall(name="test_object_array", kwargs=Dict("rows" => ParsedValue(json_escapes))))
+        @test esc_tool.rows[1]["id"] == "café"
+        @test esc_tool.rows[1]["emoji"] == "😀"
+        @test esc_tool.rows[1]["path"] == "a/b"
+        @test esc_tool.rows[1]["n"] == 1000
 
         # Regressions: object-looking text stays literal for String fields,
         # parses for Dict fields, and arbitrary scalars still fail for vectors.

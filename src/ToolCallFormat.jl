@@ -23,8 +23,8 @@ using ToolCallFormat
     read(path, String)
 end
 
-# Parse a tool call from LLM output
-call = parse_tool_call("send_key(text: \\"hello\\")")
+# Build a tool call and execute it
+call = ParsedCall(name="send_key", kwargs=Dict("text" => ParsedValue(value="hello", raw="hello")))
 tool = create_tool(SendKeyTool, call)
 result = execute(tool)
 ```
@@ -34,9 +34,7 @@ module ToolCallFormat
 # Core types (ParsedCall, ToolSchema, CallStyle, etc.)
 include("types.jl")
 
-# Parsing and serialization
-include("parser.jl")
-include("stream_processor.jl")
+# Serialization (tool schema → LLM-facing text)
 include("serializer.jl")
 
 # Schema generation for prompts
