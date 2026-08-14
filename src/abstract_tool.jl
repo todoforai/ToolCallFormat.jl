@@ -78,16 +78,47 @@ _json_to_plain(x) = x
 
 _parse_stringified_container(s::AbstractString) = _json_to_plain(JSON3.read(strip(String(s)), Any))
 
+# @deftool maps integer/number schema types to Union{T,Nothing}. Models (and MCP
+# gateways) often send those as strings ("120") or JSON floats (120.0). convert()
+# cannot do String→Int or Float64→Union{Nothing,Int}, so peel Nothing and parse.
+_inner_type(::Type{Union{T,Nothing}}) where T = T
+_inner_type(::Type{T}) where T = T
+
+function _parse_scalar_string(::Type{T}, s::AbstractString) where T
+    str = strip(String(s))
+    if T <: Integer
+        n = tryparse(Int, str)
+        n !== nothing && return n
+        f = tryparse(Float64, str)
+        return (f !== nothing && isinteger(f)) ? Int(f) : nothing
+    elseif T <: AbstractFloat
+        return tryparse(Float64, str)
+    elseif T <: Bool
+        str == "true" && return true
+        str == "false" && return false
+        return nothing
+    end
+    nothing
+end
+
 function _coerce_tool_arg(ftype::Type, val)
     val isa ftype && return val
-    parsed_from_string = val isa AbstractString && _wants_stringified_container(ftype, val)
+    inner = _inner_type(ftype)
+    parsed_from_string = val isa AbstractString &&
+        (_wants_stringified_container(ftype, val) || _wants_stringified_container(inner, val))
     candidate = parsed_from_string ? _parse_stringified_container(val) : val
     candidate isa ftype && return candidate
     # Stringified lone `{...}` object for a Vector field (model should have sent
     # `[{...}]`) — wrap the parsed object into a 1-element vector. Only for the
     # parsed-dict case so arbitrary scalars still fail conversion.
-    if parsed_from_string && ftype <: AbstractVector && candidate isa AbstractDict
+    if parsed_from_string && (ftype <: AbstractVector || inner <: AbstractVector) && candidate isa AbstractDict
         candidate = [candidate]
+    end
+    if candidate isa AbstractString
+        parsed = _parse_scalar_string(inner, candidate)
+        parsed !== nothing && return convert(ftype, parsed)
+    elseif candidate isa AbstractFloat && inner <: Integer && isinteger(candidate)
+        return convert(ftype, inner(candidate))
     end
     convert(ftype, candidate)
 end

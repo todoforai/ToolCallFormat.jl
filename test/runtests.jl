@@ -226,6 +226,23 @@ const test_ctx = TestContext()
         bad_scalar = ParsedCall(name="test_any_array", kwargs=Dict("values" => ParsedValue("not json")))
         @test_throws ToolArgumentError create_tool(TestAnyArrayTool, bad_scalar)
 
+        # Models / MCP gateways stringify integers ("120") and sometimes send
+        # JSON floats (120.0) for integer fields generated as Union{Int,Nothing}.
+        @deftool "Int coercion" test_int_arg(
+            "Seconds" => timeout::Int = 30
+        ) = string(timeout)
+        int_from_str = create_tool(TestIntArgTool,
+            ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue("120"))))
+        @test int_from_str.timeout == 120
+        int_from_float_str = create_tool(TestIntArgTool,
+            ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue("120.0"))))
+        @test int_from_float_str.timeout == 120
+        int_from_float = create_tool(TestIntArgTool,
+            ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue(120.0))))
+        @test int_from_float.timeout == 120
+        @test_throws ToolArgumentError create_tool(TestIntArgTool,
+            ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue("soon"))))
+
         println("✓ Structured argument coercion tests passed")
     end
 
