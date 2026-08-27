@@ -243,6 +243,35 @@ const test_ctx = TestContext()
         @test_throws ToolArgumentError create_tool(TestIntArgTool,
             ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue("soon"))))
 
+        # A `Union{T,Nothing}` param is unwrapped to T for the LLM-facing schema, but
+        # the struct field must stay nullable: `group::String = nothing` threw
+        # `convert(String, nothing)` on every construction of the tool.
+        @deftool "Nullable default" test_nullable_arg(
+            "Group slug" => group::Union{String,Nothing} = nothing
+        ) = string(group)
+        @test fieldtype(TestNullableArgTool, :group) == Union{String,Nothing}
+        @test TestNullableArgTool().group === nothing
+        @test create_tool(TestNullableArgTool, ParsedCall(name="test_nullable_arg")).group === nothing
+        @test create_tool(TestNullableArgTool,
+            ParsedCall(name="test_nullable_arg", kwargs=Dict("group" => ParsedValue("g")))).group == "g"
+        # The LLM-facing schema is unchanged by the nullable field type.
+        nullable_param = only(get_tool_schema(TestNullableArgTool).params)
+        @test nullable_param.type == "string"
+        @test nullable_param.required == false
+        @test nullable_param.default == "nothing"
+
+        # Same in `function ... end` form, and for a non-nullable neighbour param.
+        @deftool "Nullable default, function form" function test_nullable_fn(
+            "Group slug" => group::Union{String,Nothing} = nothing,
+            "Name" => name::String = "";
+            ctx = nothing
+        )
+            string(group, name)
+        end
+        @test fieldtype(TestNullableFnTool, :group) == Union{String,Nothing}
+        @test fieldtype(TestNullableFnTool, :name) == String
+        @test TestNullableFnTool().group === nothing
+
         println("✓ Structured argument coercion tests passed")
     end
 

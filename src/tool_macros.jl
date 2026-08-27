@@ -130,8 +130,8 @@ macro deftool(args...)
     # Separate schema params (for AI) from context param (always named 'ctx', after semicolon)
     schema_params = filter(p -> p.name != :ctx, params)
 
-    # Convert to format for code generation: [(name, schema_type, desc, required, default), ...]
-    params_for_gen = [(p.name, _type_to_schema(p.type), p.desc, p.required, p.default)
+    # Convert to format for code generation: [(name, schema_type, desc, required, default, nullable), ...]
+    params_for_gen = [(p.name, _type_to_schema(p.type), p.desc, p.required, p.default, p.nullable)
                       for p in schema_params]
 
     # Validate params
@@ -214,9 +214,13 @@ function _generate_tool(sn, tool_name, description, params, execute_expr, intern
         [(:_id, UUID, :(uuid4())),
          (:process_result, :(Union{ProcessResult, Nothing}), :(nothing)),
          (:_tool_call_id, :(Union{String,Nothing}), :(nothing))],
-        [(name, _schema_to_julia_type(type_str),
+        # A param declared `Union{T,Nothing}` keeps its nullability in the struct: the
+        # schema type is unwrapped for the LLM (our tool schema has no unions), but a
+        # `T` field with the author's `= nothing` default would throw
+        # `convert(T, nothing)` on every construction.
+        [(name, nullable ? :(Union{$(_schema_to_julia_type(type_str)),Nothing}) : _schema_to_julia_type(type_str),
           default === nothing ? _default_value_expr(_schema_to_julia_type(type_str)) : esc(default))
-         for (name, type_str, _, _, default) in params],
+         for (name, type_str, _, _, default, nullable) in params],
         [(name, esc(type),
           default === nothing ? _default_value_expr_for_type(type) : esc(default))
          for (name, type, default) in internal_fields],
@@ -228,7 +232,7 @@ function _generate_tool(sn, tool_name, description, params, execute_expr, intern
     # Include default value as string for display in tool descriptions
     schema_exprs = [:(ParamSchema(name=$(string(name)), type=$type_str, description=$desc, required=$req,
                                   default=$(default === nothing ? nothing : :(string($(esc(default)))))))
-                    for (name, type_str, desc, req, default) in params]
+                    for (name, type_str, desc, req, default, _) in params]
 
     result = quote
         Base.@kwdef mutable struct $sn <: AbstractTool
@@ -247,7 +251,7 @@ function _generate_tool(sn, tool_name, description, params, execute_expr, intern
             (name=$tool_name, description=$description,
              params=[$([:(( name=$(string(name)), type=$type_str, description=$(desc isa String ? desc : esc(desc)), required=$req,
                            default=$(default === nothing ? nothing : :(string($(esc(default))))) ))
-                       for (name, type_str, desc, req, default) in params]...)])
+                       for (name, type_str, desc, req, default, _) in params]...)])
         end
     end
 
@@ -297,7 +301,7 @@ end
 function _parse_sig(sig)
     sig.head == :call || error("@deftool: invalid signature")
     func_name = sig.args[1]
-    params = NamedTuple{(:name, :type, :required, :default, :desc), Tuple{Symbol, Any, Bool, Any, String}}[]
+    params = NamedTuple{(:name, :type, :required, :default, :desc, :nullable), Tuple{Symbol, Any, Bool, Any, String, Bool}}[]
 
     for arg in sig.args[2:end]
         if arg isa Expr && arg.head == :parameters
@@ -333,15 +337,15 @@ function _parse_param(expr, is_positional)
             desc = lhs.args[2]
             typed_part = lhs.args[3]
             if desc isa String
-                name, type = _parse_typed(typed_part)
-                return (name=name, type=type, required=false, default=default, desc=desc)
+                name, type, nullable = _parse_typed(typed_part)
+                return (name=name, type=type, required=false, default=default, desc=desc, nullable=nullable)
             end
             # Fall through to legacy handling if first arg isn't a string
         end
 
         # Regular: x::Type = val (no description)
-        name, type = _parse_typed(lhs)
-        return (name=name, type=type, required=false, default=default, desc="")
+        name, type, nullable = _parse_typed(lhs)
+        return (name=name, type=type, required=false, default=default, desc="", nullable=nullable)
     end
 
     # Case 2: Has `=>` - could be new description-first or legacy style
@@ -352,8 +356,8 @@ function _parse_param(expr, is_positional)
         # "desc" => x::Type (description first, no default).
         # desc may be a string literal, a const reference, or an interpolation expr.
         if !_is_typed(first_arg)
-            name, type = _parse_typed(second_arg)
-            return (name=name, type=type, required=is_positional, default=nothing, desc=first_arg)
+            name, type, nullable = _parse_typed(second_arg)
+            return (name=name, type=type, required=is_positional, default=nothing, desc=first_arg, nullable=nullable)
         end
 
         # Legacy syntax not supported - description must come first
@@ -362,13 +366,13 @@ function _parse_param(expr, is_positional)
 
     # Case 3: Just typed, no description: `x::Type`
     if expr isa Expr && expr.head == :(::)
-        name, type = _parse_typed(expr)
-        return (name=name, type=type, required=is_positional, default=nothing, desc="")
+        name, type, nullable = _parse_typed(expr)
+        return (name=name, type=type, required=is_positional, default=nothing, desc="", nullable=nullable)
     end
 
     # Case 4: Just a symbol (untyped): `x`
     if expr isa Symbol
-        return (name=expr, type=:String, required=is_positional, default=nothing, desc="")
+        return (name=expr, type=:String, required=is_positional, default=nothing, desc="", nullable=false)
     end
 
     error("@deftool: cannot parse param: $expr")
@@ -378,15 +382,16 @@ end
 typed part, i.e. legacy `param::Type => desc`), false if it's a description."""
 _is_typed(expr) = expr isa Expr && expr.head == :(::)
 
-"""Extract (name, type) from `name::Type`. Unwraps `Union{T, Nothing}` to just `T`."""
+"""Extract (name, type, nullable) from `name::Type`. `Union{T, Nothing}` (the common
+optional-field pattern) is unwrapped to `T` for the schema, and reported as nullable so
+the generated struct field can keep accepting `nothing`."""
 function _parse_typed(expr)
-    expr isa Expr && expr.head == :(::) || return (expr, :String)
+    expr isa Expr && expr.head == :(::) || return (expr, :String, false)
     name, type = expr.args
-    # Handle Union{T, Nothing} -> T (common pattern for optional fields)
     if type isa Expr && type.head == :curly && type.args[1] == :Union
-        type = type.args[2]
+        return (name, type.args[2], true)
     end
-    (name, type)
+    (name, type, false)
 end
 
 function _type_to_schema(type)
@@ -424,7 +429,7 @@ function _transform_body(expr, param_names::Set{Symbol})
 end
 
 function _validate_param(param, index)
-    name, type_str, desc, req, _ = param
+    name, type_str, desc, req, _, _ = param
     name isa Symbol || error("Param $index: name must be Symbol")
     name in RESERVED_FIELD_NAMES && error("Param $index: :$name is reserved")
     type_str in VALID_SCHEMA_TYPES || error("Param $index: invalid type \"$type_str\"")
