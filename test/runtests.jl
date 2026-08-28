@@ -272,6 +272,21 @@ const test_ctx = TestContext()
         @test fieldtype(TestNullableFnTool, :name) == String
         @test TestNullableFnTool().group === nothing
 
+        # Member order must not matter, and a nullable non-string keeps its schema type.
+        @deftool "Reversed union" test_nullable_rev(
+            "Group slug" => group::Union{Nothing,String} = nothing,
+            "Seconds" => timeout::Union{Nothing,Int} = nothing
+        ) = string(group, timeout)
+        @test fieldtype(TestNullableRevTool, :group) == Union{String,Nothing}
+        @test TestNullableRevTool().group === nothing
+        @test [p.type for p in get_tool_schema(TestNullableRevTool).params] == ["string", "integer"]
+
+        # A union that isn't `Union{T,Nothing}` used to be silently reduced to its first
+        # member (dropping Int here); it's now a macro-expansion error.
+        @test_throws LoadError @eval @deftool "Bad union" test_bad_union(
+            "Value" => value::Union{String,Int}
+        ) = string(value)
+
         println("✓ Structured argument coercion tests passed")
     end
 

@@ -316,7 +316,7 @@ function _parse_sig(sig)
 end
 
 """
-Parse a parameter expression into normalized (name, type, required, default, desc) tuple.
+Parse a parameter expression into normalized (name, type, required, default, desc, nullable) tuple.
 
 Supported forms (recommended - description first):
 - `x::Type`                              → required, no description
@@ -383,13 +383,19 @@ typed part, i.e. legacy `param::Type => desc`), false if it's a description."""
 _is_typed(expr) = expr isa Expr && expr.head == :(::)
 
 """Extract (name, type, nullable) from `name::Type`. `Union{T, Nothing}` (the common
-optional-field pattern) is unwrapped to `T` for the schema, and reported as nullable so
-the generated struct field can keep accepting `nothing`."""
+optional-field pattern, either member order) is unwrapped to `T` for the schema — which
+has no unions — and reported as nullable so the generated struct field keeps accepting
+`nothing`. Any other union is rejected rather than silently reduced to one member."""
 function _parse_typed(expr)
     expr isa Expr && expr.head == :(::) || return (expr, :String, false)
     name, type = expr.args
     if type isa Expr && type.head == :curly && type.args[1] == :Union
-        return (name, type.args[2], true)
+        members = filter(!=(:Nothing), type.args[2:end])
+        length(members) == length(type.args) - 1 &&
+            error("@deftool: param `$name`: unions other than `Union{T,Nothing}` are not supported (got `$type`)")
+        length(members) == 1 ||
+            error("@deftool: param `$name`: `Union{T,Nothing}` takes exactly one non-Nothing type (got `$type`)")
+        return (name, only(members), true)
     end
     (name, type, false)
 end
