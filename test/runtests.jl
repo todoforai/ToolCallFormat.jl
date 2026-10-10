@@ -242,6 +242,11 @@ const test_ctx = TestContext()
         @test int_from_float.timeout == 120
         @test_throws ToolArgumentError create_tool(TestIntArgTool,
             ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue("soon"))))
+        # Empty / "null" strings for a non-string field mean "omitted" → default applies.
+        for s in ("", " ", "null")
+            @test create_tool(TestIntArgTool,
+                ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue(s)))).timeout == 30
+        end
 
         # A `Union{T,Nothing}` param is unwrapped to T for the LLM-facing schema, but
         # the struct field must stay nullable: `group::String = nothing` threw

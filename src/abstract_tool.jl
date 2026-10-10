@@ -167,14 +167,19 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
     # (e.g. a model passing a String for a `Vector{Dict{String,Any}}` field) that
     # callers can't turn into a useful message. Convert here so a bad LLM argument
     # becomes a clear, catchable `ToolArgumentError` naming the field and expected type.
-    for (sym, val) in kwargs
+    for (sym, val) in collect(kwargs)
         ftype = fieldtype(T, sym)
         val isa ftype && continue
+        # `""` / `"null"` for a non-string field means "not given" — same as a JSON null above.
+        if val isa AbstractString && strip(val) in ("", "null")
+            delete!(kwargs, sym)
+            continue
+        end
         try
             kwargs[sym] = _coerce_tool_arg(ftype, val)
         catch e
             throw(ToolArgumentError(
-                "tool $(toolname(T)): argument \"$sym\" has wrong type — expected $ftype, got $(typeof(val)) ($(sprint(showerror, e)))"))
+                "tool $(toolname(T)): argument \"$sym\" has wrong type — expected $ftype, got $(typeof(val)) $(first(repr(val), 200))"))
         end
     end
 
