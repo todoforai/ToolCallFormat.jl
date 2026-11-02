@@ -123,6 +123,30 @@ function _coerce_tool_arg(ftype::Type, val)
     convert(ftype, candidate)
 end
 
+# Some models (seen on Claude Haiku) leak Anthropic's XML call syntax into native JSON
+# args: `{"timeout": "120\">\n<parameter name=\"cmd\">ls"}` — the next param is inside
+# the previous string. Split such values back into their keys, but only at a leaked
+# name that is a schema param still missing from the call, so a legit value that merely
+# contains `<parameter name="…">` text (e.g. a heredoc) is left alone.
+const LEAKED_PARAM = r"(?:\">|</parameter>)\s*<parameter name=\"([^\"]+)\">"
+_strip_leaked_close(s) = String(replace(s, r"\s*</parameter>\s*(?:</invoke>\s*)?(?:</function_calls>\s*)?$" => ""))
+
+function repair_leaked_params!(kwargs::Dict{String,ParsedValue}, schema_names)
+    for (k, pv) in collect(kwargs)
+        v = pv.value
+        v isa AbstractString || continue
+        ms = [m for m in eachmatch(LEAKED_PARAM, v) if (n = m.captures[1]) in schema_names && n != k && !haskey(kwargs, n)]
+        (isempty(ms) || !allunique(m.captures[1] for m in ms)) && continue  # ambiguous → leave as is
+        kwargs[k] = ParsedValue(_strip_leaked_close(v[1:prevind(v, ms[1].offset)]))
+        for (i, m) in enumerate(ms)
+            from = m.offset + ncodeunits(m.match)
+            to = i < length(ms) ? prevind(v, ms[i+1].offset) : lastindex(v)
+            kwargs[String(m.captures[1])] = ParsedValue(_strip_leaked_close(v[from:to]))
+        end
+    end
+    kwargs
+end
+
 # Default create_tool using schema - tools can override for custom parsing
 function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: AbstractTool
     schema = get_tool_schema(T)
@@ -134,11 +158,11 @@ function create_tool(::Type{T}, call::ParsedCall; extra_kwargs...) where T <: Ab
 
     # Active tools - extract params from call.kwargs
     kwargs = Dict{Symbol,Any}()
-    schema_names = Set{String}()
+    schema_names = Set{String}(string(p.name) for p in schema.params)
+    repair_leaked_params!(call.kwargs, schema_names)
     for p in schema.params
-        name_str = p.name isa Symbol ? string(p.name) : p.name
-        name_sym = p.name isa Symbol ? p.name : Symbol(p.name)
-        push!(schema_names, name_str)
+        name_str = string(p.name)
+        name_sym = Symbol(p.name)
         pv = get(call.kwargs, name_str, nothing)
 
         if p.type in ("text", "codeblock")

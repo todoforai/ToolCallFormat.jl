@@ -242,6 +242,29 @@ const test_ctx = TestContext()
         @test int_from_float.timeout == 120
         @test_throws ToolArgumentError create_tool(TestIntArgTool,
             ParsedCall(name="test_int_arg", kwargs=Dict("timeout" => ParsedValue("soon"))))
+        # Model leaked XML call syntax into a JSON arg: the next param sits inside `timeout`.
+        @deftool "Leaked params" test_leak_arg(
+            "Command" => cmd::String,
+            "Seconds" => timeout::Union{Int,Nothing} = nothing
+        ) = cmd
+        leaked = create_tool(TestLeakArgTool, ParsedCall(name="test_leak_arg", kwargs=Dict(
+            "timeout" => ParsedValue("120\">\n<parameter name=\"cmd\">ls -la | grep \"x\"</parameter>"))))
+        @test leaked.timeout == 120
+        @test leaked.cmd == "ls -la | grep \"x\""
+        # `</parameter>` boundary, UTF-8, idempotent on reuse.
+        tagged = ParsedCall(name="test_leak_arg", kwargs=Dict(
+            "cmd" => ParsedValue("echo ő</parameter>\n<parameter name=\"timeout\">7</parameter></invoke>")))
+        @test (create_tool(TestLeakArgTool, tagged).cmd, create_tool(TestLeakArgTool, tagged).timeout) == ("echo ő", 7)
+        # Same missing name twice → ambiguous, untouched (then fails typing).
+        @test_throws ToolArgumentError create_tool(TestLeakArgTool, ParsedCall(name="test_leak_arg", kwargs=Dict(
+            "timeout" => ParsedValue("1\">\n<parameter name=\"cmd\">a\">\n<parameter name=\"cmd\">b"))))
+        # A present key is never overwritten; unknown names stay in the value.
+        kept = create_tool(TestLeakArgTool, ParsedCall(name="test_leak_arg", kwargs=Dict(
+            "cmd" => ParsedValue("cat <<EOF\n\"><parameter name=\"foo\">x\nEOF"), "timeout" => ParsedValue(5))))
+        @test kept.cmd == "cat <<EOF\n\"><parameter name=\"foo\">x\nEOF"
+        @test_throws ToolArgumentError create_tool(TestLeakArgTool, ParsedCall(name="test_leak_arg", kwargs=Dict(
+            "cmd" => ParsedValue("ls"), "timeout" => ParsedValue("120\">\n<parameter name=\"cmd\">pwd"))))
+
         # Empty / "null" strings for a non-string field mean "omitted" → default applies.
         for s in ("", " ", "null")
             @test create_tool(TestIntArgTool,
